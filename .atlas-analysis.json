@@ -1,0 +1,126 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "COW Fee Module",
+  "projectDescription": "Automated fee collection infrastructure for CoW Protocol using Safe modules and keeper automation",
+  "theme": "aspen",
+  "primaryColor": "#7c7c7c",
+  "lightColor": "#0d0d0d",
+  "darkColor": "#dedede",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "how-it-works",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "setup/prerequisites",
+              "setup/environment",
+              "setup/deployment"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/enable-module",
+              "operations/keeper-setup",
+              "operations/running-keeper",
+              "operations/docker"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/module-parameters",
+              "configuration/cli-options",
+              "configuration/networks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Smart Contract",
+        "groups": [
+          {
+            "group": "Contract Reference",
+            "pages": [
+              "contract/cowfeemodule",
+              "contract/interfaces",
+              "contract/deployment"
+            ]
+          },
+          {
+            "group": "Functions",
+            "pages": [
+              "contract/functions/drip",
+              "contract/functions/approve",
+              "contract/functions/revoke"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/overview",
+              "cli/options"
+            ]
+          },
+          {
+            "group": "Strategies",
+            "pages": [
+              "cli/token-list-strategies",
+              "cli/slippage"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Information",
+            "pages": [
+              "resources/verification",
+              "resources/troubleshooting",
+              "resources/security"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Safe module for automated fee collection on CoW Protocol",
+    "Multi-chain support (Ethereum, Gnosis, Arbitrum, Base, etc.)",
+    "CLI keeper tool for automated token swapping to native tokens",
+    "Configurable token filtering and minimum output thresholds",
+    "Multiple token discovery strategies (explorer API or on-chain events)",
+    "Batch order placement with configurable slippage",
+    "Permission-controlled operations (keeper-only access)"
+  ],
+  "publicApiSurface": [
+    "COWFeeModule.drip(address[] approveTokens, SwapToken[] swapTokens)",
+    "COWFeeModule.approve(address[] tokens)",
+    "COWFeeModule.revoke(Revocation[] revocations)",
+    "COWFeeModule.nextValidTo()",
+    "CLI: --network <network>",
+    "CLI: --rpc-url <rpc-url>",
+    "CLI: --max-orders <max-orders>",
+    "CLI: --buy-amount-slippage-bps <slippage>",
+    "CLI: --module <module-address>",
+    "CLI: --token-list-strategy <strategy>",
+    "CLI: --lookback-range <blocks>"
+  ]
+}
