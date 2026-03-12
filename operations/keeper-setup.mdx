@@ -1,0 +1,478 @@
+---
+title: Keeper Setup
+description: Configure the keeper service for automated fee collection
+---
+
+The keeper is a TypeScript service that monitors the Settlement contract and triggers automated fee collection. This guide covers keeper configuration before running.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Module Deployed and Enabled">
+    The COWFeeModule must be deployed and enabled on your Safe
+  </Step>
+  <Step title="Keeper Wallet Funded">
+    The keeper wallet needs native tokens for gas fees
+  </Step>
+  <Step title="Dependencies Installed">
+    Run `yarn install` to install all dependencies
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+### PRIVATE_KEY (Required)
+
+The keeper requires a private key to sign transactions.
+
+**From `ts/utils/readConfig.ts:19`:**
+```typescript
+const privateKey = readEnv("PRIVATE_KEY");
+```
+
+**Set the environment variable:**
+
+```bash
+export PRIVATE_KEY=0xYourPrivateKeyHere...
+```
+
+<Warning>
+**Security Critical:**
+
+- Never commit private keys to version control
+- Use `.env` file (excluded via `.gitignore`)
+- The address derived from this key **must match** the keeper address set during module deployment
+
+**From `ts/utils/readConfig.ts:119-125`:**
+```typescript
+const wallet = new ethers.Wallet(privateKey);
+const walletAddress = await wallet.getAddress();
+if (walletAddress.toLowerCase() !== keeper.toLowerCase()) {
+  throw new Error(
+    `The provided private key belongs to ${walletAddress}, which doesn't match the keeper (${keeper})`
+  );
+}
+```
+
+The keeper will **fail to start** if there's a mismatch.
+</Warning>
+
+### Alternative: Environment File
+
+Create a `.env.keeper` file for keeper-specific configuration:
+
+```bash
+# .env.keeper
+PRIVATE_KEY=0xYourPrivateKeyHere...
+```
+
+Load it before running:
+```bash
+source .env.keeper
+```
+
+## Network Selection
+
+Specify the network where your module is deployed.
+
+**From `ts/config.ts:10-22`:**
+```typescript
+export const SUPPORTED_NETWORKS = [
+  "mainnet",
+  "gnosis",
+  "arbitrum",
+  "base",
+  "sepolia",
+  "avalanche",
+  "polygon",
+  "bnb",
+  "linea",
+  "plasma",
+  "ink",
+] as const;
+```
+
+Use the `--network` flag:
+
+```bash
+--network mainnet
+--network gnosis
+--network arbitrum
+--network base
+--network sepolia
+```
+
+<Note>
+The network parameter automatically configures:
+- Default RPC URL (can be overridden with `--rpc-url`)
+- CoW Explorer URL
+- Chain ID
+
+See network configurations in `ts/config.ts:24-83`.
+</Note>
+
+## Module Address
+
+Provide the deployed COWFeeModule contract address.
+
+**From `ts/utils/readConfig.ts:53`:**
+```typescript
+.requiredOption("--module <module>", "COWFeeModule address")
+```
+
+This is the **only required CLI option**. The keeper reads all other configuration from the module's immutable parameters:
+
+**From `ts/utils/readConfig.ts:100-118`:**
+```typescript
+const [receiver, wrappedNativeToken, vaultRelayer, gpv2Settlement, 
+       keeper, appData, targetSafe, minOut] = await Promise.all([
+  moduleContract.receiver(),
+  moduleContract.wrappedNativeToken(),
+  moduleContract.vaultRelayer(),
+  moduleContract.settlement(),
+  moduleContract.keeper(),
+  moduleContract.appData(),
+  moduleContract.targetSafe(),
+  moduleContract.minOut(),
+]);
+```
+
+This ensures the keeper always uses the correct configuration for the deployed module.
+
+## RPC URL Configuration
+
+By default, the keeper uses network-specific RPC URLs from `ts/config.ts`.
+
+**Override with custom RPC:**
+
+```bash
+--rpc-url https://your-custom-rpc.com
+```
+
+**Example:**
+```bash
+--rpc-url https://mainnet.infura.io/v3/YOUR-PROJECT-ID
+```
+
+<Note>
+Custom RPC URLs are useful for:
+- Using paid RPC providers with higher rate limits
+- Connecting to private/local nodes
+- Testing with different RPC endpoints
+</Note>
+
+## Token Discovery Strategy
+
+Choose how the keeper discovers tokens held by the Settlement contract.
+
+**From `ts/utils/readConfig.ts:54-61`:**
+```typescript
+.addOption(
+  new Option(
+    "--token-list-strategy <strategy>",
+    "Strategy to use to get the list of tokens to swap on"
+  )
+    .choices(["explorer", "chain"] as const)
+    .default("explorer" as "explorer" | "chain")
+)
+```
+
+### Explorer Strategy (Default)
+
+Uses blockchain explorer APIs to fetch token balances.
+
+```bash
+--token-list-strategy explorer
+```
+
+**Supported networks:**
+- **Mainnet**: Ethplorer API
+- **Gnosis**: Blockscout API
+
+<Note>
+**Advantages:**
+- Faster than chain strategy
+- No need to scan historical events
+- Lower RPC usage
+
+**Limitations:**
+- Only works on networks with explorer API support
+- Depends on third-party API availability
+</Note>
+
+### Chain Strategy
+
+Queries on-chain `Trade` events from the Settlement contract.
+
+```bash
+--token-list-strategy chain
+```
+
+**From `ts/drip/getTokenBalances.ts:112-159`:**
+
+Scans the Settlement contract's `Trade` events over a configurable lookback range.
+
+<Note>
+**Advantages:**
+- Works on any network
+- No dependency on external APIs
+- Fully decentralized
+
+**Limitations:**
+- Slower than explorer strategy
+- Higher RPC usage
+- Requires configuring lookback range
+</Note>
+
+### Lookback Range (Chain Strategy Only)
+
+When using chain strategy, configure how many blocks to scan:
+
+**From `ts/utils/readConfig.ts:62-69`:**
+```typescript
+.addOption(
+  new Option(
+    "--lookback-range <n>",
+    "Last <n> number of blocks to check the `Trade` events for"
+  )
+    .default(1000)
+    .argParser((x) => +x)
+)
+```
+
+**Example:**
+```bash
+--lookback-range 5000  # Scan last 5000 blocks
+```
+
+<Warning>
+Larger lookback ranges:
+- ✅ Discover more tokens (useful for infrequent runs)
+- ❌ Increase RPC load and execution time
+- ❌ May hit RPC rate limits
+
+Adjust based on:
+- How often you run the keeper
+- Your RPC provider's limits
+- Network block time
+</Warning>
+
+## Gas Price Configuration
+
+Override transaction gas parameters for faster confirmation or cost control.
+
+### Max Fee Per Gas
+
+**From `ts/utils/readConfig.ts:25-30`:**
+```typescript
+.addOption(new Option(
+    "--max-fee-per-gas <gwei>",
+    "Override maxFeePerGas transaction parameter. Units specified in GWEI"
+  )
+    .argParser(x => ethers.utils.parseUnits(x, 'gwei'))
+)
+```
+
+**Example:**
+```bash
+--max-fee-per-gas 50  # 50 gwei max fee
+```
+
+### Max Priority Fee Per Gas
+
+**From `ts/utils/readConfig.ts:31-36`:**
+```typescript
+.addOption(new Option(
+    "--max-priority-fee-per-gas <gwei>",
+    "Override maxPriorityFeePerGas transaction parameter. Units specified in GWEI"
+  )
+    .argParser(x => ethers.utils.parseUnits(x, 'gwei'))
+)
+```
+
+**Example:**
+```bash
+--max-priority-fee-per-gas 2  # 2 gwei priority fee
+```
+
+<Note>
+If not specified, the keeper uses gas prices from `eth_feeData` RPC call:
+
+**From `ts/drip/drip.ts:59-62`:**
+```typescript
+let feeData = await signerWithProvider.getFeeData();
+if (!feeData.maxFeePerGas) {
+  throw new Error("Failed to get max fee per gas from network");
+}
+```
+</Note>
+
+## Order Batching
+
+Control how many orders are placed in a single drip transaction.
+
+**From `ts/utils/readConfig.ts:37-44`:**
+```typescript
+.addOption(
+  new Option(
+    "--max-orders <max-orders>",
+    "Maximum number of orders to place in single drip call"
+  )
+    .default(250)
+    .argParser((x) => +x)
+)
+```
+
+**Example:**
+```bash
+--max-orders 100  # Place max 100 orders per drip
+```
+
+<Note>
+**Considerations:**
+
+- More orders per drip = fewer transactions (more gas-efficient)
+- Too many orders may exceed gas limits
+- Default (250) is conservative and tested
+
+**From `ts/drip/dripItAll.ts:37-38`:**
+```typescript
+for (let i = 0; i < tokensToSwap.length; i += config.maxOrders) {
+  const toSwap = tokensToSwap.slice(i, i + config.maxOrders);
+```
+</Note>
+
+## Slippage Tolerance
+
+Configure slippage tolerance for order buy amounts.
+
+**From `ts/utils/readConfig.ts:45-52`:**
+```typescript
+.addOption(
+  new Option(
+    "--buy-amount-slippage-bps <buy-amount-slippage-bps>",
+    "Tolerance to add to the quoted buyAmount"
+  )
+    .default(100)
+    .argParser((x) => +x)
+)
+```
+
+**Default**: 100 bps = 1%
+
+**Example:**
+```bash
+--buy-amount-slippage-bps 200  # 2% slippage tolerance
+```
+
+The quoted buy amount is reduced by this percentage to account for price movements:
+
+**From `ts/drip/getTokensToSwap.ts:79-80`:**
+```typescript
+.mul(10000 - config.buyAmountSlippageBps)
+.div(10000)
+```
+
+## Confirmation Prompt
+
+Enable interactive confirmation before sending the drip transaction.
+
+**From `ts/utils/readConfig.ts:70-75`:**
+```typescript
+.addOption(
+  new Option(
+    "-c, --confirm-drip",
+    "Ask for confirmation before dripping"
+  ).default(false)
+)
+```
+
+**Example:**
+```bash
+--confirm-drip
+```
+
+When enabled, the keeper will display transaction details and prompt:
+
+**From `ts/drip/drip.ts:24-30`:**
+```typescript
+const confirmation = confirmDrip
+  ? await confirmMessage("\nDo you want to send this transaction? (yes/no): ")
+  : true;
+
+if (!confirmation) {
+  console.log("All right! Transaction cancelled");
+  return;
+}
+```
+
+<Note>
+Useful for:
+- Testing and development
+- Manual review before execution
+- One-time fee collection runs
+
+Not recommended for automated/scheduled runs.
+</Note>
+
+## Configuration Examples
+
+### Mainnet Production
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2 \
+  --rpc-url https://mainnet.infura.io/v3/YOUR-PROJECT-ID \
+  --max-orders 250 \
+  --buy-amount-slippage-bps 100 \
+  --token-list-strategy explorer
+```
+
+### Gnosis Chain with Chain Strategy
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network gnosis \
+  --module 0x264843e85f8449ee3e9436253f3b8c0282dd4795 \
+  --token-list-strategy chain \
+  --lookback-range 2000 \
+  --max-orders 200
+```
+
+### Sepolia Testnet with Confirmation
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network sepolia \
+  --module 0x456ca0e6abf780140583ef3c8b5be2e7804278a6 \
+  --confirm-drip \
+  --max-fee-per-gas 10 \
+  --token-list-strategy chain
+```
+
+## Validation Checklist
+
+Before running the keeper, verify:
+
+- [ ] `PRIVATE_KEY` environment variable set
+- [ ] Private key matches keeper address from module deployment
+- [ ] Keeper wallet funded with native tokens for gas
+- [ ] Module address is correct for the target network
+- [ ] RPC endpoint is accessible
+- [ ] Module is enabled on the Safe
+- [ ] Safe is whitelisted as a CoW Protocol solver
+
+## Next Steps
+
+With the keeper configured, proceed to running it:
+
+<Card title="Running the Keeper" icon="play" href="/operations/running-keeper">
+  Start the keeper service to begin collecting fees
+</Card>

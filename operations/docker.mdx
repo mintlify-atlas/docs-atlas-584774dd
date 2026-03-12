@@ -1,0 +1,528 @@
+---
+title: Docker Deployment
+description: Run the keeper service in a Docker container
+---
+
+Deploy the COW Fee Module keeper as a containerized service using Docker for easier deployment and automation.
+
+## Prerequisites
+
+- Docker installed ([Get Docker](https://docs.docker.com/get-docker/))
+- COWFeeModule contract deployed and enabled
+- Keeper private key available
+- Module address for target network
+
+## Build Docker Image
+
+**From `README.md:112-117`:**
+
+```bash
+source .env
+
+# Build the docker image
+docker build -t cow-fee .
+```
+
+This builds a Docker image tagged `cow-fee` using the project's Dockerfile.
+
+<Note>
+The build process:
+1. Installs Node.js and Yarn
+2. Copies project files
+3. Installs dependencies via `yarn install`
+4. Sets up the entry point for the keeper script
+</Note>
+
+### Verify Build
+
+```bash
+# List docker images
+docker images | grep cow-fee
+```
+
+You should see:
+```
+cow-fee    latest    abc123def456    2 minutes ago    XXX MB
+```
+
+## Run Docker Container
+
+**From `README.md:119-130`:**
+
+```bash
+source .env
+
+# Run the container
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  cow-fee \
+  --network mainnet \
+  --max-orders 250 \
+  --rpc-url $RPC_URL \
+  --buy-amount-slippage-bps 100 \
+  --module <module-address> \
+  --token-list-strategy chain \
+  --lookback-range 1000
+```
+
+### Command Breakdown
+
+<ParamField path="--rm" type="flag">
+  Automatically remove the container when it exits
+  
+  Prevents accumulation of stopped containers.
+</ParamField>
+
+<ParamField path="-e PRIVATE_KEY=$PRIVATE_KEY" type="environment">
+  Pass the keeper private key as an environment variable
+  
+  <Warning>
+  **Security:** The private key is passed from your shell environment to the container. Ensure:
+  - Your shell session is secure
+  - Docker daemon access is restricted
+  - Consider using Docker secrets for production
+  </Warning>
+</ParamField>
+
+<ParamField path="cow-fee" type="image">
+  The Docker image name built in the previous step
+</ParamField>
+
+All arguments after the image name are passed to the keeper script:
+- `--network mainnet`
+- `--max-orders 250`
+- `--rpc-url $RPC_URL`
+- etc.
+
+## Environment Variables
+
+Pass environment variables to the container using `-e` flags:
+
+```bash
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  -e CUSTOM_VAR=value \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+### Using Environment File
+
+Alternatively, use `--env-file` to load variables from a file:
+
+```bash
+# Create environment file
+cat > .env.docker <<EOF
+PRIVATE_KEY=0xYourPrivateKeyHere
+EOF
+
+# Run with env file
+docker run --rm \
+  --env-file .env.docker \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+<Warning>
+**Security:** Ensure `.env.docker` has restricted permissions:
+
+```bash
+chmod 600 .env.docker
+```
+
+Never commit this file to version control.
+</Warning>
+
+## Network-Specific Examples
+
+<Tabs>
+  <Tab title="Ethereum Mainnet">
+    ```bash
+    docker run --rm \
+      -e PRIVATE_KEY=$PRIVATE_KEY \
+      cow-fee \
+      --network mainnet \
+      --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2 \
+      --rpc-url https://eth.llamarpc.com \
+      --max-orders 250 \
+      --token-list-strategy explorer
+    ```
+  </Tab>
+  
+  <Tab title="Gnosis Chain">
+    ```bash
+    docker run --rm \
+      -e PRIVATE_KEY=$PRIVATE_KEY \
+      cow-fee \
+      --network gnosis \
+      --module 0x264843e85f8449ee3e9436253f3b8c0282dd4795 \
+      --rpc-url https://1rpc.io/gnosis \
+      --token-list-strategy chain \
+      --lookback-range 2000
+    ```
+  </Tab>
+  
+  <Tab title="Arbitrum One">
+    ```bash
+    docker run --rm \
+      -e PRIVATE_KEY=$PRIVATE_KEY \
+      cow-fee \
+      --network arbitrum \
+      --module 0xaf717efcfec02a65101e3ffb3c07234b8705cafc \
+      --rpc-url https://arb1.arbitrum.io/rpc \
+      --max-orders 200
+    ```
+  </Tab>
+  
+  <Tab title="Base">
+    ```bash
+    docker run --rm \
+      -e PRIVATE_KEY=$PRIVATE_KEY \
+      cow-fee \
+      --network base \
+      --module 0xb7ec643b48fe7730ef701d10362a9f8a670ac018 \
+      --rpc-url https://base.llamarpc.com
+    ```
+  </Tab>
+</Tabs>
+
+## Running as Daemon
+
+For continuous operation, run the container in detached mode:
+
+```bash
+docker run -d \
+  --name cow-fee-keeper \
+  --restart unless-stopped \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+### Command Options
+
+<ParamField path="-d" type="flag">
+  Run in detached mode (background)
+</ParamField>
+
+<ParamField path="--name cow-fee-keeper" type="string">
+  Assign a name to the container for easy reference
+</ParamField>
+
+<ParamField path="--restart unless-stopped" type="string">
+  Automatically restart the container if it crashes
+  
+  Options:
+  - `no`: Never restart (default)
+  - `on-failure`: Restart only on error exit
+  - `always`: Always restart
+  - `unless-stopped`: Always restart unless manually stopped
+</ParamField>
+
+## Container Management
+
+### View Running Containers
+
+```bash
+docker ps
+```
+
+Output:
+```
+CONTAINER ID   IMAGE      COMMAND                  CREATED         STATUS         PORTS     NAMES
+abc123def456   cow-fee    "yarn ts-node index…"   5 minutes ago   Up 5 minutes             cow-fee-keeper
+```
+
+### View Container Logs
+
+```bash
+# Follow logs in real-time
+docker logs -f cow-fee-keeper
+
+# View last 100 lines
+docker logs --tail 100 cow-fee-keeper
+
+# View logs since 1 hour ago
+docker logs --since 1h cow-fee-keeper
+```
+
+### Stop Container
+
+```bash
+docker stop cow-fee-keeper
+```
+
+### Remove Container
+
+```bash
+docker rm cow-fee-keeper
+```
+
+### Restart Container
+
+```bash
+docker restart cow-fee-keeper
+```
+
+## Scheduled Execution with Docker
+
+### Cron with Docker
+
+Run the keeper periodically via cron:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add entry (runs every 6 hours)
+0 */6 * * * docker run --rm -e PRIVATE_KEY=$PRIVATE_KEY cow-fee --network mainnet --module 0x... >> /var/log/cow-fee.log 2>&1
+```
+
+<Note>
+Ensure `PRIVATE_KEY` is available in the cron environment:
+
+```bash
+# In crontab, source environment first
+0 */6 * * * source /path/to/.env && docker run --rm -e PRIVATE_KEY=$PRIVATE_KEY cow-fee --network mainnet --module 0x... >> /var/log/cow-fee.log 2>&1
+```
+</Note>
+
+## Docker Compose
+
+For more complex deployments, use Docker Compose:
+
+**Create `docker-compose.yml`:**
+
+```yaml
+version: '3.8'
+
+services:
+  keeper:
+    build: .
+    container_name: cow-fee-keeper
+    restart: unless-stopped
+    environment:
+      - PRIVATE_KEY=${PRIVATE_KEY}
+    command: |
+      --network mainnet
+      --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+      --rpc-url https://eth.llamarpc.com
+      --max-orders 250
+      --token-list-strategy explorer
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+**Run with Docker Compose:**
+
+```bash
+# Start service
+source .env
+docker-compose up -d
+
+# View logs
+docker-compose logs -f keeper
+
+# Stop service
+docker-compose down
+
+# Restart service
+docker-compose restart keeper
+```
+
+### Multi-Network Deployment
+
+Run keepers for multiple networks simultaneously:
+
+```yaml
+version: '3.8'
+
+services:
+  mainnet-keeper:
+    build: .
+    container_name: cow-fee-mainnet
+    restart: unless-stopped
+    environment:
+      - PRIVATE_KEY=${MAINNET_PRIVATE_KEY}
+    command: |
+      --network mainnet
+      --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+      --rpc-url ${MAINNET_RPC_URL}
+  
+  gnosis-keeper:
+    build: .
+    container_name: cow-fee-gnosis
+    restart: unless-stopped
+    environment:
+      - PRIVATE_KEY=${GNOSIS_PRIVATE_KEY}
+    command: |
+      --network gnosis
+      --module 0x264843e85f8449ee3e9436253f3b8c0282dd4795
+      --rpc-url ${GNOSIS_RPC_URL}
+```
+
+## Volume Mounts
+
+Mount local directories for logs or configuration:
+
+```bash
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  -v $(pwd)/logs:/app/logs \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+This mounts the local `./logs` directory to `/app/logs` in the container.
+
+## Resource Limits
+
+Limit container resource usage:
+
+```bash
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  --memory="512m" \
+  --cpus="0.5" \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+<ParamField path="--memory" type="string">
+  Maximum memory usage (e.g., "512m", "1g")
+</ParamField>
+
+<ParamField path="--cpus" type="string">
+  Maximum CPU usage (e.g., "0.5" = 50%, "2" = 200%)
+</ParamField>
+
+## Troubleshooting
+
+<Accordion title="Container exits immediately">
+  **Cause:** Likely a configuration or environment variable issue.
+  
+  **Solution:** Check logs:
+  ```bash
+  docker logs cow-fee-keeper
+  ```
+  
+  Common issues:
+  - `PRIVATE_KEY` not set or invalid
+  - Invalid CLI options
+  - Module address incorrect
+</Accordion>
+
+<Accordion title="Error: Cannot connect to the Docker daemon">
+  **Cause:** Docker daemon not running or insufficient permissions.
+  
+  **Solution:**
+  1. Start Docker daemon: `sudo systemctl start docker`
+  2. Add user to docker group: `sudo usermod -aG docker $USER`
+  3. Log out and back in
+</Accordion>
+
+<Accordion title="Private key environment variable not working">
+  **Cause:** Environment variable not properly passed to container.
+  
+  **Solution:** Verify with:
+  ```bash
+  docker run --rm -e PRIVATE_KEY=$PRIVATE_KEY cow-fee env | grep PRIVATE_KEY
+  ```
+  
+  Should show the private key. If not, check your shell environment.
+</Accordion>
+
+<Accordion title="Build fails with dependency errors">
+  **Cause:** Network issues or package registry problems.
+  
+  **Solution:**
+  1. Check internet connectivity
+  2. Clear Docker build cache: `docker builder prune`
+  3. Rebuild: `docker build --no-cache -t cow-fee .`
+</Accordion>
+
+## Security Best Practices
+
+<Warning>
+**Production Security:**
+
+1. **Use Docker Secrets** for private keys instead of environment variables:
+   ```bash
+   echo $PRIVATE_KEY | docker secret create keeper_pk -
+   docker service create --secret keeper_pk cow-fee ...
+   ```
+
+2. **Run as non-root user** - Modify Dockerfile:
+   ```dockerfile
+   USER node
+   ```
+
+3. **Scan images for vulnerabilities**:
+   ```bash
+   docker scan cow-fee
+   ```
+
+4. **Use read-only root filesystem** where possible:
+   ```bash
+   docker run --rm --read-only -e PRIVATE_KEY=$PRIVATE_KEY cow-fee ...
+   ```
+
+5. **Limit network access** if not needed:
+   ```bash
+   docker run --rm --network none -e PRIVATE_KEY=$PRIVATE_KEY cow-fee ...
+   ```
+   (Note: This won't work for the keeper as it needs network access)
+</Warning>
+
+## Monitoring
+
+### Health Checks
+
+Add a health check to your Docker Compose:
+
+```yaml
+services:
+  keeper:
+    build: .
+    healthcheck:
+      test: ["CMD", "ps", "aux", "|", "grep", "node"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+```
+
+### Prometheus Metrics
+
+Expose container metrics:
+
+```bash
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  -p 9323:9323 \
+  cow-fee \
+  --network mainnet \
+  --module 0x...
+```
+
+Configure Prometheus to scrape `http://localhost:9323/metrics`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Options" icon="terminal" href="/configuration/cli-options">
+    Complete CLI options reference
+  </Card>
+  
+  <Card title="Module Parameters" icon="sliders" href="/configuration/module-parameters">
+    Understanding module configuration
+  </Card>
+</CardGroup>

@@ -1,0 +1,350 @@
+---
+title: Environment Configuration
+description: Configure environment variables for deployment and operation
+---
+
+The COW Fee Module uses environment variables for deployment configuration and keeper operation. This guide explains all configuration options.
+
+## Environment File Setup
+
+Copy the example environment file to create your configuration:
+
+```bash
+cp .env.example .env
+```
+
+<Warning>
+Never commit your `.env` file to version control. It contains sensitive information like private keys.
+</Warning>
+
+## Deployment Configuration
+
+These variables are used during contract deployment and keeper operation.
+
+### RPC_URL
+
+RPC endpoint for connecting to the blockchain network.
+
+**From `.env.example:1-8`:**
+```bash
+# Examples for different networks
+RPC_URL=https://eth.llamarpc.com          # Mainnet
+RPC_URL=https://1rpc.io/gnosis             # Gnosis Chain
+RPC_URL=https://arb1.arbitrum.io/rpc      # Arbitrum One
+RPC_URL=https://base.llamarpc.com          # Base
+RPC_URL=https://sepolia.drpc.org           # Sepolia Testnet
+```
+
+<Accordion title="Recommended RPC Providers">
+**Paid Providers (Production):**
+- [Alchemy](https://alchemy.com) - Enterprise-grade infrastructure
+- [Infura](https://infura.io) - Reliable and scalable
+- [QuickNode](https://quicknode.com) - High-performance nodes
+
+**Free Public RPCs (Development/Testing):**
+- [LlamaRPC](https://llamarpc.com) - Community-maintained
+- [Chainlist](https://chainlist.org) - Comprehensive RPC directory
+- [1RPC](https://1rpc.io) - Privacy-focused RPCs
+</Accordion>
+
+### RECEIVER
+
+Ethereum address that receives the collected fees (in wrapped native tokens).
+
+**From `.env.example:13-14`:**
+```bash
+RECEIVER=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+```
+
+<Note>
+This can be:
+- A multisig wallet for team treasury
+- A protocol treasury address
+- Any Ethereum address that should receive fees
+</Note>
+
+### WRAPPED_NATIVE_TOKEN
+
+ERC20 contract address of the wrapped native token for your network.
+
+**From `.env.example:16-22`:**
+```bash
+# Network-specific wrapped tokens
+WRAPPED_NATIVE_TOKEN=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2  # Mainnet WETH
+WRAPPED_NATIVE_TOKEN=0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d  # Gnosis WXDAI
+WRAPPED_NATIVE_TOKEN=0x82aF49447D8a07e3bd95BD0d56f35241523fBab1  # Arbitrum WETH
+WRAPPED_NATIVE_TOKEN=0x4200000000000000000000000000000000000006  # Base WETH
+WRAPPED_NATIVE_TOKEN=0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14  # Sepolia WETH
+```
+
+**Common Wrapped Tokens:**
+
+| Network | Symbol | Address |
+|---------|--------|----------|
+| Ethereum Mainnet | WETH | `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` |
+| Gnosis Chain | WXDAI | `0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d` |
+| Arbitrum One | WETH | `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` |
+| Base | WETH | `0x4200000000000000000000000000000000000006` |
+| Polygon | WMATIC | Check network documentation |
+
+### KEEPER
+
+Address of the keeper wallet authorized to execute module functions.
+
+**From `.env.example:24-25`:**
+```bash
+KEEPER=0x1234567890abcdef1234567890abcdef12345678
+```
+
+<Warning>
+**Important**: The keeper address must match the address derived from the `PRIVATE_KEY` environment variable used at runtime.
+
+The keeper script validates this match:
+
+**From `ts/utils/readConfig.ts:119-125`:**
+```typescript
+const wallet = new ethers.Wallet(privateKey);
+const walletAddress = await wallet.getAddress();
+if (walletAddress.toLowerCase() !== keeper.toLowerCase()) {
+  throw new Error(
+    `The provided private key belongs to ${walletAddress}, which doesn't match the keeper (${keeper})`
+  );
+}
+```
+</Warning>
+
+### SETTLEMENT
+
+CoW Protocol GPv2Settlement contract address.
+
+**From `.env.example:27-28`:**
+```bash
+SETTLEMENT=0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+```
+
+<Note>
+Most networks use the same Settlement address. Verify at:
+[CoW Protocol Networks](https://github.com/cowprotocol/contracts/blob/main/networks.json)
+</Note>
+
+### APP_DATA
+
+bytes32 hex value containing hashed metadata for CoW Protocol orders.
+
+**From `.env.example:30-32`:**
+```bash
+APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+```
+
+**How to generate:**
+
+1. Visit [CoW Explorer AppData Tool](https://explorer.cow.fi/appdata)
+2. Create metadata JSON with your application details
+3. Generate the hash
+4. Use the resulting bytes32 value
+
+<Accordion title="Example AppData Metadata">
+```json
+{
+  "version": "0.9.0",
+  "appCode": "CoW Fee Module",
+  "metadata": {
+    "referrer": {
+      "address": "0x...",
+      "version": "1.0.0"
+    }
+  }
+}
+```
+</Accordion>
+
+### TARGET_SAFE
+
+Gnosis Safe address that the module will be enabled on.
+
+**From `.env.example:34-35`:**
+```bash
+TARGET_SAFE=0xYourSafeAddress...
+```
+
+<Warning>
+**Critical**: This Safe **must be whitelisted as a CoW Protocol solver** to call the Settlement contract's `settle()` function.
+</Warning>
+
+### MIN_OUT
+
+Minimum amount of wrapped native token (in wei/atoms) required for a swap to execute.
+
+**From `.env.example:37-38`:**
+```bash
+MIN_OUT=1000000000000000000  # 1 WETH/WXDAI/etc.
+```
+
+**How to calculate:**
+
+```bash
+# For 1 token (18 decimals)
+MIN_OUT=1000000000000000000
+
+# For 0.1 token
+MIN_OUT=100000000000000000
+
+# For 0.01 token
+MIN_OUT=10000000000000000
+
+# Using cast
+cast --to-wei "1 ether"
+```
+
+<Note>
+Tokens that would produce less than `MIN_OUT` wrapped native tokens are filtered out and not swapped.
+
+This prevents wasting gas on dust amounts.
+</Note>
+
+## Contract Verification
+
+### ETHERSCAN_API_KEY
+
+API key for verifying contract source code on block explorers.
+
+**From `.env.example:42-44`:**
+```bash
+ETHERSCAN_API_KEY=your-api-key-here
+```
+
+**Get API keys:**
+
+<CardGroup cols={2}>
+  <Card title="Etherscan" href="https://etherscan.io/apis">
+    For Ethereum Mainnet, Sepolia, and other networks
+  </Card>
+  <Card title="Gnosisscan" href="https://gnosisscan.io">
+    For Gnosis Chain
+  </Card>
+  <Card title="Arbiscan" href="https://arbiscan.io">
+    For Arbitrum One
+  </Card>
+  <Card title="Basescan" href="https://basescan.org">
+    For Base network
+  </Card>
+</CardGroup>
+
+## Runtime Configuration
+
+These variables are used when running the keeper service.
+
+### PRIVATE_KEY
+
+Private key of the keeper wallet used to sign transactions.
+
+```bash
+PRIVATE_KEY=0xYourPrivateKeyHere...
+```
+
+<Warning>
+**Security Critical:**
+
+1. Never commit this to Git
+2. Use `.gitignore` to exclude `.env`
+3. Consider using secure secret management in production
+4. The address derived from this key must match the `KEEPER` address
+
+**From `ts/utils/readConfig.ts:19`:**
+```typescript
+const privateKey = readEnv("PRIVATE_KEY");
+```
+</Warning>
+
+## Network-Specific Examples
+
+<Tabs>
+  <Tab title="Ethereum Mainnet">
+    ```bash
+    RPC_URL=https://eth.llamarpc.com
+    RECEIVER=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+    WRAPPED_NATIVE_TOKEN=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+    KEEPER=0xYourKeeperAddress
+    SETTLEMENT=0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+    APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+    TARGET_SAFE=0xYourSafeAddress
+    MIN_OUT=1000000000000000000
+    ETHERSCAN_API_KEY=your-etherscan-key
+    ```
+  </Tab>
+  
+  <Tab title="Gnosis Chain">
+    ```bash
+    RPC_URL=https://1rpc.io/gnosis
+    RECEIVER=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+    WRAPPED_NATIVE_TOKEN=0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d
+    KEEPER=0xYourKeeperAddress
+    SETTLEMENT=0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+    APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+    TARGET_SAFE=0xYourSafeAddress
+    MIN_OUT=1000000000000000000
+    ETHERSCAN_API_KEY=your-gnosisscan-key
+    ```
+  </Tab>
+  
+  <Tab title="Arbitrum One">
+    ```bash
+    RPC_URL=https://arb1.arbitrum.io/rpc
+    RECEIVER=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+    WRAPPED_NATIVE_TOKEN=0x82aF49447D8a07e3bd95BD0d56f35241523fBab1
+    KEEPER=0xYourKeeperAddress
+    SETTLEMENT=0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+    APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+    TARGET_SAFE=0xYourSafeAddress
+    MIN_OUT=1000000000000000000
+    ETHERSCAN_API_KEY=your-arbiscan-key
+    ```
+  </Tab>
+  
+  <Tab title="Base">
+    ```bash
+    RPC_URL=https://base.llamarpc.com
+    RECEIVER=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+    WRAPPED_NATIVE_TOKEN=0x4200000000000000000000000000000000000006
+    KEEPER=0xYourKeeperAddress
+    SETTLEMENT=0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+    APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+    TARGET_SAFE=0xYourSafeAddress
+    MIN_OUT=1000000000000000000
+    ETHERSCAN_API_KEY=your-basescan-key
+    ```
+  </Tab>
+</Tabs>
+
+## Validation
+
+After configuring your environment, validate the setup:
+
+```bash
+# Source the environment
+source .env
+
+# Verify RPC connectivity
+cast block-number --rpc-url $RPC_URL
+
+# Verify wrapped token exists
+cast call $WRAPPED_NATIVE_TOKEN "symbol()(string)" --rpc-url $RPC_URL
+
+# Verify Settlement contract
+cast code $SETTLEMENT --rpc-url $RPC_URL
+
+# Verify Safe exists
+cast code $TARGET_SAFE --rpc-url $RPC_URL
+```
+
+<Note>
+If all commands execute without errors, your environment is correctly configured.
+</Note>
+
+## Next Steps
+
+With your environment configured, proceed to:
+
+<Card title="Deployment Guide" icon="rocket" href="/setup/deployment">
+  Deploy the COWFeeModule contract with your configuration
+</Card>

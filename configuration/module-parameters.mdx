@@ -1,0 +1,514 @@
+---
+title: Module Parameters
+description: Understanding COWFeeModule constructor parameters and their implications
+---
+
+The COWFeeModule contract is configured via immutable constructor parameters. This guide explains each parameter, its purpose, and security implications.
+
+## Immutability
+
+<Warning>
+**All module parameters are immutable after deployment.** To change any parameter, you must deploy a new module instance and enable it on your Safe.
+
+**From `src/COWFeeModule.sol:15-23`:**
+```solidity
+ISafe public immutable targetSafe;
+address public immutable wrappedNativeToken;
+address public immutable keeper;
+bytes32 public immutable domainSeparator;
+bytes32 public immutable appData;
+IGPv2Settlement public immutable settlement;
+address public immutable vaultRelayer;
+address public immutable receiver;
+uint256 public immutable minOut;
+```
+</Warning>
+
+## Constructor Signature
+
+**From `src/COWFeeModule.sol:43-51`:**
+
+```solidity
+constructor(
+    address _settlement,
+    address _targetSafe,
+    address _wrappedNativeToken,
+    address _keeper,
+    bytes32 _appData,
+    address _receiver,
+    uint256 _minOut
+)
+```
+
+## Parameters Reference
+
+### settlement
+
+<ParamField path="_settlement" type="address" required>
+  CoW Protocol GPv2Settlement contract address
+</ParamField>
+
+**Purpose:** The Settlement contract that holds accumulated fees and processes CoW orders.
+
+**From `src/COWFeeModule.sol:52-53`:**
+```solidity
+settlement = IGPv2Settlement(_settlement);
+vaultRelayer = settlement.vaultRelayer();
+```
+
+The module automatically fetches the `vaultRelayer` address from the Settlement contract.
+
+**Network-Specific Addresses:**
+
+Most networks use: `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+Verify at: [CoW Protocol Networks](https://github.com/cowprotocol/contracts/blob/main/networks.json)
+
+<Note>
+**Security Implication:** The Settlement contract must be the official CoW Protocol deployment. Using an incorrect address could result in:
+- Failed transactions
+- Loss of funds
+- Inability to execute swaps
+</Note>
+
+### targetSafe
+
+<ParamField path="_targetSafe" type="address" required>
+  Gnosis Safe address that owns the module
+</ParamField>
+
+**Purpose:** The Safe wallet that the module will execute transactions through.
+
+**From `src/COWFeeModule.sol:54`:**
+```solidity
+targetSafe = ISafe(_targetSafe);
+```
+
+The module calls `execTransactionFromModuleReturnData` on this Safe:
+
+**From `src/COWFeeModule.sol:193-202`:**
+```solidity
+function _execFromModule(address _to, bytes memory _cd) internal returns (bytes memory) {
+    (bool success, bytes memory returnData) =
+        targetSafe.execTransactionFromModuleReturnData(_to, 0, _cd, ISafe.Operation.Call);
+    if (!success) {
+        assembly ("memory-safe") {
+            revert(add(returnData, 0x20), mload(returnData))
+        }
+    }
+    return returnData;
+}
+```
+
+<Warning>
+**Critical Requirements:**
+
+1. The Safe **must be a whitelisted CoW Protocol solver** to call `settle()` on the Settlement contract
+2. The module must be enabled on this Safe via `enableModule(moduleAddress)`
+3. The Safe must have sufficient permissions to interact with the Settlement contract
+
+Failure to meet these requirements will cause all drip transactions to revert.
+</Warning>
+
+### wrappedNativeToken
+
+<ParamField path="_wrappedNativeToken" type="address" required>
+  ERC20 address of the wrapped native token (WETH, WXDAI, etc.)
+</ParamField>
+
+**Purpose:** The target token that all fees are converted into.
+
+**From `src/COWFeeModule.sol:55`:**
+```solidity
+wrappedNativeToken = _wrappedNativeToken;
+```
+
+All swap orders use this as the `buyToken`:
+
+**From `src/COWFeeModule.sol:114`:**
+```solidity
+GPv2Order.Data memory order = GPv2Order.Data({
+    sellToken: IERC20(address(0)),
+    buyToken: wrappedNativeTokenContract,  // Always wrapped native
+    ...
+});
+```
+
+**Common Wrapped Tokens:**
+
+| Network | Symbol | Address |
+|---------|--------|----------|
+| Ethereum Mainnet | WETH | `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` |
+| Gnosis Chain | WXDAI | `0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d` |
+| Arbitrum One | WETH | `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` |
+| Base | WETH | `0x4200000000000000000000000000000000000006` |
+| Polygon | WMATIC | Check network docs |
+
+<Note>
+Native ETH is automatically wrapped to this token before transfer:
+
+**From `src/COWFeeModule.sol:148-154`:**
+```solidity
+if (hasToWrapNativeToken) {
+    approveAndDripInteractions[len - 2] = IGPv2Settlement.InteractionData({
+        to: wrappedNativeToken,
+        value: nativeBalance,
+        callData: abi.encodeCall(IWrappedNativeToken.deposit, ())
+    });
+}
+```
+</Note>
+
+### keeper
+
+<ParamField path="_keeper" type="address" required>
+  Address authorized to call module functions
+</ParamField>
+
+**Purpose:** The only address that can call `drip()`, `approve()`, and `revoke()` functions.
+
+**From `src/COWFeeModule.sol:56`:**
+```solidity
+keeper = _keeper;
+```
+
+Enforced by the `onlyKeeper` modifier:
+
+**From `src/COWFeeModule.sol:36-41`:**
+```solidity
+modifier onlyKeeper() {
+    if (msg.sender != keeper) {
+        revert OnlyKeeper();
+    }
+    _;
+}
+```
+
+Applied to all external functions:
+
+**From `src/COWFeeModule.sol:64, 72, 92`:**
+```solidity
+function approve(address[] calldata _tokens) external onlyKeeper { ... }
+function revoke(Revocation[] calldata _revocations) external onlyKeeper { ... }
+function drip(address[] calldata _approveTokens, SwapToken[] calldata _swapTokens) external onlyKeeper { ... }
+```
+
+<Warning>
+**Security Implication:**
+
+- Only this address can trigger fee collection
+- Losing the private key means the module becomes unusable
+- Compromise of the keeper private key allows unauthorized drip calls (but cannot steal funds directly)
+
+**Best Practices:**
+- Use a dedicated wallet for the keeper
+- Secure the private key (hardware wallet, encrypted keystore, etc.)
+- Keep the keeper wallet funded with gas
+- Consider using a multisig for production deployments
+</Warning>
+
+### appData
+
+<ParamField path="_appData" type="bytes32" required>
+  Metadata hash for CoW Protocol orders
+</ParamField>
+
+**Purpose:** Identifies the application creating orders and can include referral information.
+
+**From `src/COWFeeModule.sol:58`:**
+```solidity
+appData = _appData;
+```
+
+Included in every order:
+
+**From `src/COWFeeModule.sol:119`:**
+```solidity
+GPv2Order.Data memory order = GPv2Order.Data({
+    ...
+    appData: appData,
+    ...
+});
+```
+
+**How to Generate:**
+
+1. Visit [CoW Explorer AppData Tool](https://explorer.cow.fi/appdata)
+2. Create metadata JSON:
+   ```json
+   {
+     "version": "0.9.0",
+     "appCode": "CoW Fee Module",
+     "metadata": {
+       "referrer": {
+         "address": "0xYourAddress",
+         "version": "1.0.0"
+       }
+     }
+   }
+   ```
+3. Generate hash (the tool does this automatically)
+4. Use the resulting bytes32 value
+
+<Note>
+The keeper validates that orders use the correct appData:
+
+**From `ts/drip/swapTokens.ts:19-22`:**
+```typescript
+const { appDataHex, appDataContent } = await getAppData();
+if (appDataHex.toLowerCase() !== config.appData.toLowerCase()) {
+  throw new Error(`appData mismatch: ${appDataHex} != ${config.appData}`);
+}
+```
+</Note>
+
+### receiver
+
+<ParamField path="_receiver" type="address" required>
+  Destination address for collected fees
+</ParamField>
+
+**Purpose:** Where all wrapped native tokens (and order proceeds) are sent.
+
+**From `src/COWFeeModule.sol:59`:**
+```solidity
+receiver = _receiver;
+```
+
+Used in two places:
+
+1. **Order receiver** - CoW orders specify this as the recipient:
+   **From `src/COWFeeModule.sol:115`:**
+   ```solidity
+   GPv2Order.Data memory order = GPv2Order.Data({
+       ...
+       receiver: receiver,
+       ...
+   });
+   ```
+
+2. **Wrapped native token transfer** - Direct transfers go here:
+   **From `src/COWFeeModule.sol:157-163`:**
+   ```solidity
+   if (hasToTransferWrappedNativeToken) {
+       approveAndDripInteractions[len - 1] = IGPv2Settlement.InteractionData({
+           to: wrappedNativeToken,
+           value: 0,
+           callData: abi.encodeCall(IERC20.transfer, (receiver, wrappedNativeBalance))
+       });
+   }
+   ```
+
+<Note>
+**Recommended Receiver Types:**
+- Protocol treasury multisig
+- DAO-controlled address
+- Revenue distribution contract
+- Any secure Ethereum address
+
+**Not Recommended:**
+- Exchange deposit addresses (may not support all tokens)
+- Contracts without proper token handling
+</Note>
+
+### minOut
+
+<ParamField path="_minOut" type="uint256" required>
+  Minimum wrapped native token output (in wei/atoms)
+</ParamField>
+
+**Purpose:** Filters out small/dust swaps to avoid wasting gas on unprofitable trades.
+
+**From `src/COWFeeModule.sol:60`:**
+```solidity
+minOut = _minOut;
+```
+
+Enforced in two places:
+
+1. **On-chain validation** - Drip reverts if any order is below threshold:
+   **From `src/COWFeeModule.sol:133`:**
+   ```solidity
+   if (swapToken.buyAmount < minOut) revert BuyAmountTooSmall();
+   ```
+
+2. **Native token wrapping threshold**:
+   **From `src/COWFeeModule.sol:96, 105`:**
+   ```solidity
+   bool hasToWrapNativeToken = nativeBalance >= minOut;
+   ...
+   bool hasToTransferWrappedNativeToken = wrappedNativeBalance >= minOut;
+   ```
+
+3. **Off-chain filtering** - Keeper filters before posting orders:
+   **From `ts/drip/getTokensToSwap.ts:89-92`:**
+   ```typescript
+   const minOutFiltered = quotesFiltered.filter((token) =>
+     BigNumber.from(token.buyAmount).gt(config.minOut)
+   );
+   console.log("Total tokens after filtering by minOut:", minOutFiltered.length);
+   ```
+
+**Calculation Examples:**
+
+```bash
+# 1 WETH (18 decimals)
+cast --to-wei "1 ether"  # 1000000000000000000
+
+# 0.1 WETH
+cast --to-wei "0.1 ether"  # 100000000000000000
+
+# 0.01 WETH
+cast --to-wei "0.01 ether"  # 10000000000000000
+```
+
+<Note>
+**Choosing the Right Value:**
+
+- **Too low:** Waste gas on dust trades
+- **Too high:** Miss legitimate fee collection opportunities
+- **Recommended:** 0.01-0.1 wrapped native tokens
+
+**Factors to consider:**
+- Average gas cost per swap
+- Token price volatility
+- Network gas prices
+- Frequency of keeper runs
+</Note>
+
+## Derived Parameters
+
+Some parameters are derived from constructor inputs:
+
+### vaultRelayer
+
+**From `src/COWFeeModule.sol:53`:**
+```solidity
+vaultRelayer = settlement.vaultRelayer();
+```
+
+Automatically fetched from the Settlement contract. This is the address that tokens must be approved to for CoW orders.
+
+### domainSeparator
+
+**From `src/COWFeeModule.sol:57`:**
+```solidity
+domainSeparator = settlement.domainSeparator();
+```
+
+Used for EIP-712 order signing:
+
+**From `src/COWFeeModule.sol:214-216`:**
+```solidity
+function _computePreSignature(GPv2Order.Data memory order) internal view returns (bytes memory) {
+    bytes32 orderDigest = GPv2Order.hash(order, domainSeparator);
+    return abi.encodePacked(orderDigest, address(settlement), order.validTo);
+}
+```
+
+## Reading Parameters On-Chain
+
+Query deployed module parameters:
+
+```bash
+MODULE_ADDRESS=0x...
+
+# Settlement
+cast call $MODULE_ADDRESS "settlement()(address)" --rpc-url $RPC_URL
+
+# Target Safe
+cast call $MODULE_ADDRESS "targetSafe()(address)" --rpc-url $RPC_URL
+
+# Wrapped Native Token
+cast call $MODULE_ADDRESS "wrappedNativeToken()(address)" --rpc-url $RPC_URL
+
+# Keeper
+cast call $MODULE_ADDRESS "keeper()(address)" --rpc-url $RPC_URL
+
+# AppData
+cast call $MODULE_ADDRESS "appData()(bytes32)" --rpc-url $RPC_URL
+
+# Receiver
+cast call $MODULE_ADDRESS "receiver()(address)" --rpc-url $RPC_URL
+
+# MinOut
+cast call $MODULE_ADDRESS "minOut()(uint256)" --rpc-url $RPC_URL
+
+# VaultRelayer (derived)
+cast call $MODULE_ADDRESS "vaultRelayer()(address)" --rpc-url $RPC_URL
+
+# Domain Separator (derived)
+cast call $MODULE_ADDRESS "domainSeparator()(bytes32)" --rpc-url $RPC_URL
+```
+
+## Comparing Deployments
+
+Use the comparison script to check parameter differences:
+
+**From `README.md:56-63`:**
+
+```bash
+yarn ts-node compare-deployments.ts \
+  --network mainnet \
+  0xNewModuleAddress
+```
+
+This compares the new deployment against the address in `networks.json`.
+
+## Parameter Update Process
+
+To change any parameter:
+
+<Steps>
+  <Step title="Update .env">
+    Modify the parameter in your `.env` file
+  </Step>
+  
+  <Step title="Deploy New Module">
+    Deploy a new module instance with updated parameters:
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol --rpc-url $RPC_URL --broadcast --verify --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+  </Step>
+  
+  <Step title="Disable Old Module">
+    Disable the old module on the Safe (via Safe UI Settings → Modules)
+  </Step>
+  
+  <Step title="Enable New Module">
+    Enable the new module on the Safe (see [Enable Module](/operations/enable-module))
+  </Step>
+  
+  <Step title="Update Keeper Config">
+    Update keeper scripts to use the new module address
+  </Step>
+</Steps>
+
+<Warning>
+Both old and new modules can be enabled simultaneously, but only one should be actively used to avoid conflicts.
+</Warning>
+
+## Security Checklist
+
+Before deploying with specific parameters:
+
+- [ ] Verify `settlement` is the official CoW Protocol address
+- [ ] Confirm `targetSafe` is whitelisted as a solver
+- [ ] Double-check `wrappedNativeToken` address for the network
+- [ ] Secure the `keeper` private key
+- [ ] Validate `appData` hash is correct
+- [ ] Verify `receiver` address is owned/controlled properly
+- [ ] Calculate `minOut` based on gas costs and token prices
+- [ ] Test deployment on testnet first
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Options" icon="terminal" href="/configuration/cli-options">
+    Keeper runtime configuration options
+  </Card>
+  
+  <Card title="Networks" icon="globe" href="/configuration/networks">
+    Supported networks and their configurations
+  </Card>
+</CardGroup>

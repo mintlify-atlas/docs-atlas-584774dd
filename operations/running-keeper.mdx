@@ -1,0 +1,492 @@
+---
+title: Running the Keeper
+description: Execute the keeper service to collect fees
+---
+
+The keeper service monitors the Settlement contract for token balances, posts swap orders to CoW Protocol, and executes the on-chain drip transaction. This guide covers running the keeper directly via Node.js.
+
+<Note>
+For containerized deployment, see [Docker Deployment](/operations/docker).
+</Note>
+
+## Quick Start
+
+Run the keeper with minimal configuration:
+
+```bash
+source .env
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+```
+
+<Warning>
+Ensure `PRIVATE_KEY` environment variable is set before running.
+</Warning>
+
+## Full Command Reference
+
+**From `README.md:82-94`:**
+
+```
+Usage: cow-fee [options]
+
+Options:
+  --network <network>                                   (choices: "mainnet", "gnosis", "arbitrum", "base", "sepolia")
+  --rpc-url <rpc-url>
+  --max-orders <max-orders>                            Maximum number of orders to place in single drip call (default: 250)
+  --buy-amount-slippage-bps <buy-amount-slippage-bps>  Tolerance to add to the quoted buyAmount (default: 100)
+  --module <module>                                    COWFeeModule address
+  --token-list-strategy <strategy>                     Strategy to use to get the list of tokens to swap on (choices: "explorer", "chain", default: "explorer")
+  --lookback-range <n>                                 Last <n> number of blocks to check the `Trade` events for (default: 1000)
+  -h, --help                                           display help for command
+```
+
+## Basic Execution
+
+**From `README.md:96-109`:**
+
+```bash
+source .env
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --max-orders 250 \
+  --rpc-url $RPC_URL \
+  --buy-amount-slippage-bps 100 \
+  --module <module-address> \
+  --token-list-strategy chain \
+  --lookback-range 1000
+```
+
+### Required Parameters
+
+<ParamField path="--module" type="string" required>
+  COWFeeModule contract address on the target network
+  
+  **Example:** `0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2`
+</ParamField>
+
+### Optional Parameters
+
+<ParamField path="--network" type="string" default="mainnet">
+  Network to run on
+  
+  **Choices:** `mainnet`, `gnosis`, `arbitrum`, `base`, `sepolia`, `avalanche`, `polygon`, `bnb`, `linea`, `plasma`, `ink`
+  
+  **From `ts/config.ts:10-22`**
+</ParamField>
+
+<ParamField path="--rpc-url" type="string">
+  Custom RPC endpoint (overrides network default)
+  
+  **Example:** `https://mainnet.infura.io/v3/YOUR-PROJECT-ID`
+</ParamField>
+
+<ParamField path="--max-orders" type="number" default="250">
+  Maximum orders per drip transaction
+  
+  **From `ts/utils/readConfig.ts:37-44`**
+</ParamField>
+
+<ParamField path="--buy-amount-slippage-bps" type="number" default="100">
+  Slippage tolerance in basis points (100 = 1%)
+  
+  **From `ts/utils/readConfig.ts:45-52`**
+</ParamField>
+
+<ParamField path="--token-list-strategy" type="string" default="explorer">
+  Token discovery method
+  
+  **Choices:** `explorer` (uses APIs), `chain` (queries events)
+  
+  **From `ts/utils/readConfig.ts:54-61`**
+</ParamField>
+
+<ParamField path="--lookback-range" type="number" default="1000">
+  Blocks to scan for Trade events (chain strategy only)
+  
+  **From `ts/utils/readConfig.ts:62-69`**
+</ParamField>
+
+<ParamField path="--max-fee-per-gas" type="string">
+  Override max fee per gas in gwei
+  
+  **Example:** `--max-fee-per-gas 50`
+  
+  **From `ts/utils/readConfig.ts:25-30`**
+</ParamField>
+
+<ParamField path="--max-priority-fee-per-gas" type="string">
+  Override priority fee in gwei
+  
+  **Example:** `--max-priority-fee-per-gas 2`
+  
+  **From `ts/utils/readConfig.ts:31-36`**
+</ParamField>
+
+<ParamField path="--confirm-drip" type="boolean" default="false">
+  Prompt for confirmation before sending transaction
+  
+  **From `ts/utils/readConfig.ts:70-75`**
+</ParamField>
+
+## Execution Flow
+
+When you run the keeper, it executes the following workflow:
+
+<Steps>
+  <Step title="Configuration Loading">
+    Loads configuration from CLI options and environment variables
+    
+    **From `ts/utils/readConfig.ts:99-118`:**
+    ```typescript
+    const [receiver, wrappedNativeToken, vaultRelayer, gpv2Settlement, 
+           keeper, appData, targetSafe, minOut] = await Promise.all([
+      moduleContract.receiver(),
+      moduleContract.wrappedNativeToken(),
+      moduleContract.vaultRelayer(),
+      moduleContract.settlement(),
+      moduleContract.keeper(),
+      moduleContract.appData(),
+      moduleContract.targetSafe(),
+      moduleContract.minOut(),
+    ]);
+    ```
+  </Step>
+  
+  <Step title="Token Discovery">
+    Discovers tokens held by the Settlement contract
+    
+    **From `ts/drip/dripItAll.ts:22`:**
+    ```typescript
+    const tokensToSwap = await getTokensToSwap(config, provider);
+    ```
+    
+    See [How It Works](/how-it-works#token-discovery-process) for details.
+  </Step>
+  
+  <Step title="Filtering">
+    Filters tokens by liquidity (quotes API) and minOut threshold
+    
+    **From `ts/drip/getTokensToSwap.ts:88-93`:**
+    ```typescript
+    const minOutFiltered = quotesFiltered.filter((token) =>
+      BigNumber.from(token.buyAmount).gt(config.minOut)
+    );
+    console.log("Total tokens after filtering by minOut:", minOutFiltered.length);
+    ```
+  </Step>
+  
+  <Step title="Order Posting">
+    Posts swap orders to CoW Protocol OrderBook API
+    
+    **From `ts/drip/swapTokens.ts:24-32`**
+    
+    Console output:
+    ```
+    Successfully posted orders:
+     [ { token: '0x...', orderId: '0x...' }, ... ]
+    ```
+  </Step>
+  
+  <Step title="Drip Transaction">
+    Builds and sends the on-chain drip transaction
+    
+    **From `ts/drip/drip.ts:65-76`:**
+    ```typescript
+    const txBaseRequest: TransactionRequest = {
+      from: await signerWithProvider.getAddress(),
+      to: moduleContract.address,
+      data: moduleContract.interface.encodeFunctionData("drip", [
+        toApprove,
+        toDrip,
+      ]),
+      ...
+    };
+    ```
+  </Step>
+  
+  <Step title="Monitoring">
+    Prints expected proceeds and CoW Explorer link
+    
+    **From `ts/drip/dripItAll.ts:74-80`:**
+    ```typescript
+    console.log(
+      `Fee collection for chain ${config.network} initiated (${
+        tokensToSwap.length
+      } orders). Expecting proceeds of ${expectedUnitsFormatted} ${
+        await buyTokenContract.symbol()
+      }!\n\nFollow the progress at ${
+        networkSpecificConfigs[config.network].explorer
+      }/address/${config.gpv2Settlement}`
+    );
+    ```
+  </Step>
+</Steps>
+
+## Expected Output
+
+Successful execution produces output similar to:
+
+```bash
+ETH to wrap: 0.0
+Total tokens pre-filter: 45
+Total tokens after filtering by quotes api: 32
+Total tokens after filtering by minOut: 8
+
+Successfully posted orders:
+ [
+   { token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', orderId: '0x...' },
+   { token: '0x6B175474E89094C44Da98b954EedeAC495271d0F', orderId: '0x...' },
+   ...
+ ]
+
+Drip transaction parameters: {
+  from: '0xYourKeeperAddress...',
+  to: '0xModuleAddress...',
+  maxFeePerGas: '25000000000',
+  maxPriorityFeePerGas: '1500000000',
+  value: '0',
+  nonce: 42
+}
+
+Estimated gas limit: 1234567
+
+Drip {
+  chainId: 1,
+  hash: '0x1234567890abcdef...',
+  status: 1,
+  gasUsed: 1234567
+}
+
+Fee collection for chain mainnet initiated (8 orders). Expecting proceeds of 12.34 WETH!
+
+Follow the progress at https://explorer.cow.fi/address/0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+```
+
+## Monitoring Progress
+
+After the drip transaction is confirmed, solvers will fill the orders.
+
+### CoW Explorer
+
+Visit the CoW Explorer link from the output to monitor order fills:
+
+**Network-specific explorers (from `ts/config.ts:24-83`):**
+
+| Network | Explorer URL |
+|---------|-------------|
+| Mainnet | `https://explorer.cow.fi` |
+| Gnosis | `https://explorer.cow.fi/gc` |
+| Arbitrum | `https://explorer.cow.fi/arb1` |
+| Base | `https://explorer.cow.fi/base` |
+| Sepolia | `https://explorer.cow.fi/sepolia` |
+
+### Check Order Status
+
+Orders appear in the Settlement contract's address page with status:
+- **Open**: Waiting for solver
+- **Filled**: Successfully executed
+- **Expired**: Past `validTo` timestamp
+- **Cancelled**: Explicitly cancelled
+
+### Verify Final Proceeds
+
+Check the receiver address balance:
+
+```bash
+cast call $WRAPPED_NATIVE_TOKEN \
+  "balanceOf(address)(uint256)" \
+  $RECEIVER \
+  --rpc-url $RPC_URL
+```
+
+Or use block explorer to view the receiver's wrapped token balance.
+
+## Common Scenarios
+
+### No Tokens to Swap
+
+If no tokens pass the filters:
+
+```bash
+ETH to wrap: 0.0
+Total tokens pre-filter: 12
+Total tokens after filtering by quotes api: 5
+Total tokens after filtering by minOut: 0
+No tokens to swap, skipping approvals and drip
+```
+
+<Note>
+This is normal if:
+- All token balances are below `minOut` threshold
+- Tokens lack liquidity (quotes API rejects)
+- Settlement contract has no fees accumulated
+</Note>
+
+### Only Native ETH to Wrap
+
+If only native ETH is present (no token swaps):
+
+```bash
+ETH to wrap: 1.5
+Total tokens pre-filter: 0
+Total tokens after filtering by quotes api: 0
+Total tokens after filtering by minOut: 0
+
+Drip transaction parameters: { ... }
+Estimated gas limit: 234567
+
+Fee collection for chain mainnet initiated (0 orders). Expecting proceeds of 1.50 WETH!
+```
+
+**From `ts/drip/dripItAll.ts:46-58`:**
+```typescript
+else if (ethToWrap.gt(0)) {
+  // Handles the case where there's no tokens to swap, but we still have to drip to wrap ETH
+  await drip({
+    chainId: config.chainId,
+    moduleContract,
+    signer,
+    toApprove: [],
+    toDrip: [],
+    maxFeePerGas: config.maxFeePerGas,
+    maxPriorityFeePerGas: config.maxPriorityFeePerGas,
+    confirmDrip: config.confirmDrip,
+  });
+}
+```
+
+### Failed Order Posting
+
+Some orders may fail to post:
+
+```bash
+Successfully posted orders:
+ [ { token: '0x...', orderId: '0x...' } ]
+
+Failed posting orders:
+ [ "Error: Insufficient liquidity for token 0x...",
+   "Error: Invalid quote response" ]
+```
+
+Only successfully posted orders are included in the drip transaction.
+
+## Troubleshooting
+
+<Accordion title="Error: Missing env var PRIVATE_KEY">
+  **Cause:** `PRIVATE_KEY` environment variable not set.
+  
+  **Solution:**
+  ```bash
+  export PRIVATE_KEY=0xYourPrivateKeyHere
+  ```
+  
+  Or add to `.env` and run `source .env`.
+</Accordion>
+
+<Accordion title="Error: The provided private key belongs to X, which doesn't match the keeper (Y)">
+  **Cause:** Private key doesn't match the keeper address from module deployment.
+  
+  **Solution:** Use the correct private key for the keeper address, or redeploy the module with the correct keeper address.
+  
+  **From `ts/utils/readConfig.ts:121-125`**
+</Accordion>
+
+<Accordion title="Error: OnlyKeeper()">
+  **Cause:** Transaction reverted because `msg.sender` is not the keeper.
+  
+  **Solution:** Verify the private key matches the module's keeper address.
+</Accordion>
+
+<Accordion title="Error estimating gas">
+  **Cause:** Transaction simulation failed.
+  
+  **Common reasons:**
+  - Module not enabled on Safe
+  - Safe not whitelisted as solver
+  - Invalid order parameters
+  - Insufficient token balances
+  
+  **Solution:** 
+  1. Verify module is enabled: `cast call $TARGET_SAFE "isModuleEnabled(address)(bool)" $MODULE_ADDRESS --rpc-url $RPC_URL`
+  2. Check Safe solver whitelist status
+  3. Review transaction parameters in output
+</Accordion>
+
+<Accordion title="Error: Failed to get max fee per gas from network">
+  **Cause:** RPC doesn't support `eth_feeData`.
+  
+  **Solution:** Manually specify gas prices:
+  ```bash
+  --max-fee-per-gas 50 --max-priority-fee-per-gas 2
+  ```
+  
+  **From `ts/drip/drip.ts:59-62`**
+</Accordion>
+
+<Accordion title="Orders not filled">
+  **Cause:** Orders may take time to fill, or lack liquidity.
+  
+  **Check:**
+  1. Visit CoW Explorer link from output
+  2. Verify orders are "Open" (not expired)
+  3. Check if buy amounts are competitive
+  4. Wait for solvers to fill (can take minutes to hours)
+  
+  Orders expire after `nextValidTo()` (next hour boundary + 2 hours).
+</Accordion>
+
+## Automation
+
+### Cron Job
+
+Run the keeper periodically via cron:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add entry (runs every 6 hours)
+0 */6 * * * cd /path/to/cow-fee && source .env && yarn ts-node index.ts --network mainnet --module 0x... >> /var/log/cow-fee.log 2>&1
+```
+
+### Systemd Service
+
+Create a systemd service for automatic restarts:
+
+```ini
+[Unit]
+Description=CoW Fee Keeper
+After=network.target
+
+[Service]
+Type=simple
+User=keeper
+WorkingDirectory=/path/to/cow-fee
+EnvironmentFile=/path/to/.env
+ExecStart=/usr/bin/yarn ts-node index.ts --network mainnet --module 0x...
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
+```
+
+<Note>
+For containerized automation, see [Docker Deployment](/operations/docker).
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/operations/docker">
+    Run the keeper in a Docker container
+  </Card>
+  
+  <Card title="CLI Options Reference" icon="terminal" href="/configuration/cli-options">
+    Complete CLI options documentation
+  </Card>
+</CardGroup>

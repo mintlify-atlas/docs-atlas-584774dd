@@ -1,0 +1,287 @@
+---
+title: Prerequisites
+description: Requirements for deploying and running the COW Fee Module
+---
+
+Before deploying the COW Fee Module and running the keeper service, ensure you have the following prerequisites in place.
+
+## Development Tools
+
+<CardGroup cols={2}>
+  <Card title="Foundry" icon="hammer">
+    Required for compiling and deploying smart contracts
+  </Card>
+  <Card title="Node.js & Yarn" icon="node-js">
+    Required for running the TypeScript keeper service
+  </Card>
+</CardGroup>
+
+### Foundry Installation
+
+Foundry is required for smart contract compilation, testing, and deployment.
+
+**Install Foundry:**
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+**Verify installation:**
+```bash
+forge --version
+cast --version
+```
+
+<Note>
+Foundry includes `forge` (build tool), `cast` (CLI for Ethereum), and `anvil` (local node).
+</Note>
+
+### Node.js & Yarn Installation
+
+The keeper service requires Node.js (v16+) and Yarn.
+
+**Install Node.js:**
+- Download from [nodejs.org](https://nodejs.org/) or use a version manager like [nvm](https://github.com/nvm-sh/nvm)
+
+**Install Yarn:**
+```bash
+npm install -g yarn
+```
+
+**Install dependencies:**
+```bash
+cd cow-fee
+yarn install
+```
+
+## Safe Deployment
+
+<Warning>
+**Critical Requirement**: The target Safe must be a **whitelisted CoW Protocol solver**.
+
+The Safe needs to be whitelisted because the COWFeeModule calls `settle()` on the Settlement contract, which is restricted to whitelisted solvers only.
+</Warning>
+
+### Safe Requirements
+
+1. **Deployed Gnosis Safe**: You need an existing Safe wallet deployment
+2. **Solver Whitelist**: The Safe address must be added to CoW Protocol's solver whitelist
+3. **Safe Owners**: Ensure you control the Safe to enable the module
+
+### How to Get Whitelisted
+
+Contact the CoW Protocol team to whitelist your Safe address:
+- [CoW Protocol Discord](https://discord.com/invite/cowprotocol)
+- [CoW Protocol Forum](https://forum.cow.fi/)
+
+<Note>
+Provide your Safe address, network, and use case (fee collection module) when requesting whitelisting.
+</Note>
+
+## CoW Protocol Settlement Contract
+
+You need the Settlement contract address for your target network.
+
+**Official Settlement Contract Addresses:**
+
+See [CoW Protocol's networks.json](https://github.com/cowprotocol/contracts/blob/main/networks.json) for all networks.
+
+**Common Networks:**
+
+| Network | Settlement Address |
+|---------|-------------------|
+| Mainnet | `0x9008D19f58AAbD9eD0D60971565AA8510560ab41` |
+| Gnosis Chain | `0x9008D19f58AAbD9eD0D60971565AA8510560ab41` |
+| Arbitrum One | `0x9008D19f58AAbD9eD0D60971565AA8510560ab41` |
+| Base | `0x9008D19f58AAbD9eD0D60971565AA8510560ab41` |
+| Sepolia (Testnet) | `0x9008D19f58AAbD9eD0D60971565AA8510560ab41` |
+
+<Note>
+CoW Protocol uses the same Settlement address across most networks for consistency.
+</Note>
+
+## Network Access
+
+### RPC Endpoint
+
+You need a reliable RPC endpoint for your target network.
+
+**Recommended RPC Providers:**
+
+<CardGroup cols={3}>
+  <Card title="Alchemy" icon="flask" href="https://alchemy.com">
+    Production-grade infrastructure
+  </Card>
+  <Card title="Infura" icon="cloud" href="https://infura.io">
+    Reliable and scalable
+  </Card>
+  <Card title="Public RPCs" icon="globe" href="https://chainlist.org">
+    Free public endpoints
+  </Card>
+</CardGroup>
+
+**Example RPC URLs (from `.env.example:1-8`):**
+
+```bash
+# Mainnet
+RPC_URL=https://eth.llamarpc.com
+
+# Gnosis Chain
+RPC_URL=https://1rpc.io/gnosis
+
+# Arbitrum One
+RPC_URL=https://arb1.arbitrum.io/rpc
+
+# Base
+RPC_URL=https://base.llamarpc.com
+
+# Sepolia Testnet
+RPC_URL=https://sepolia.drpc.org
+```
+
+<Warning>
+Public RPCs may have rate limits. For production use, consider paid RPC providers with higher limits.
+</Warning>
+
+### Block Explorer API Key (Optional)
+
+For contract verification on block explorers, you need an API key:
+
+- **Etherscan**: [etherscan.io/apis](https://etherscan.io/apis)
+- **Gnosisscan**: [gnosisscan.io](https://gnosisscan.io)
+- **Arbiscan**: [arbiscan.io](https://arbiscan.io)
+- **Basescan**: [basescan.org](https://basescan.org)
+
+**From `.env.example:42-44`:**
+```bash
+ETHERSCAN_API_KEY=your-api-key-here
+```
+
+## Keeper Wallet
+
+You need a dedicated Ethereum wallet for the keeper service.
+
+### Requirements
+
+1. **Private Key**: The keeper needs a private key to sign transactions
+2. **Native Token Balance**: Sufficient ETH/xDAI/etc. for gas fees
+3. **Security**: Store the private key securely (never commit to version control)
+
+### Creating a Keeper Wallet
+
+**Using cast:**
+```bash
+cast wallet new
+```
+
+This generates a new private key and address. **Save the private key securely!**
+
+<Warning>
+**Security Best Practices:**
+
+- Never commit private keys to Git
+- Use environment variables or secure secret management
+- Consider using hardware wallets or key management services for production
+- Keep keeper wallet funded with only necessary gas funds
+</Warning>
+
+### Funding the Keeper
+
+The keeper needs native tokens for transaction gas:
+
+- **Mainnet**: ETH
+- **Gnosis Chain**: xDAI
+- **Arbitrum**: ETH
+- **Base**: ETH
+- **Polygon**: MATIC
+
+**Recommended initial balance**: 0.1-0.5 native tokens (adjust based on gas prices)
+
+## Configuration Parameters
+
+Before deployment, gather the following information:
+
+<Steps>
+  <Step title="Receiver Address">
+    Ethereum address that will receive the collected fees (wrapped native tokens)
+    
+    **From `.env.example:13-14`:**
+    ```bash
+    RECEIVER=0x...
+    ```
+  </Step>
+  
+  <Step title="Wrapped Native Token">
+    ERC20 address of the wrapped native token for your network
+    
+    **Common Wrapped Tokens:**
+    - Mainnet: `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` (WETH)
+    - Gnosis: `0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d` (WXDAI)
+    - Arbitrum: `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` (WETH)
+    - Base: `0x4200000000000000000000000000000000000006` (WETH)
+    
+    **From `.env.example:16-22`:**
+    ```bash
+    WRAPPED_NATIVE_TOKEN=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+    ```
+  </Step>
+  
+  <Step title="Keeper Address">
+    Address of the keeper wallet (must match the private key)
+    
+    **From `.env.example:24-25`:**
+    ```bash
+    KEEPER=0x...
+    ```
+  </Step>
+  
+  <Step title="Target Safe">
+    Address of your Gnosis Safe (must be whitelisted solver)
+    
+    **From `.env.example:34-35`:**
+    ```bash
+    TARGET_SAFE=0x...
+    ```
+  </Step>
+  
+  <Step title="App Data">
+    bytes32 metadata hash for CoW Protocol orders
+    
+    Generate at [CoW Explorer AppData](https://explorer.cow.fi/appdata)
+    
+    **From `.env.example:30-32`:**
+    ```bash
+    APP_DATA=0xbcca8463f460f14bca0185afeeb75923ee4434612f41063d0171b1e743ffe84b
+    ```
+  </Step>
+  
+  <Step title="Minimum Output">
+    Minimum amount of wrapped native token (in wei/atoms) to accept
+    
+    **Example**: `1000000000000000000` = 1 WETH minimum
+    
+    **From `.env.example:37-38`:**
+    ```bash
+    MIN_OUT=1000000000000000000
+    ```
+  </Step>
+</Steps>
+
+## Checklist
+
+Before proceeding to deployment, verify:
+
+- [ ] Foundry installed and working (`forge --version`)
+- [ ] Node.js (v16+) and Yarn installed
+- [ ] Project dependencies installed (`yarn install`)
+- [ ] Safe deployed and address obtained
+- [ ] Safe whitelisted as CoW Protocol solver
+- [ ] RPC endpoint configured and tested
+- [ ] Keeper wallet created with private key
+- [ ] Keeper wallet funded with native tokens for gas
+- [ ] All configuration parameters gathered
+- [ ] `.env` file created from `.env.example`
+
+<Note>
+Once all prerequisites are met, proceed to [Environment Configuration](/setup/environment) to set up your deployment parameters.
+</Note>

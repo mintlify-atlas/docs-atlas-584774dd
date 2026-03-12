@@ -1,0 +1,301 @@
+---
+title: Enable Module
+description: Enable the COW Fee Module on your Gnosis Safe
+---
+
+After deploying the COWFeeModule contract, you must enable it on your target Safe to grant it execution permissions.
+
+<Warning>
+**Prerequisites:**
+- COWFeeModule contract is deployed
+- You have owner/signer access to the target Safe
+- The Safe is whitelisted as a CoW Protocol solver
+</Warning>
+
+## Why Enable the Module?
+
+Gnosis Safe uses a module system for security. The COWFeeModule needs explicit permission to execute transactions through the Safe via `execTransactionFromModule`.
+
+**From `src/interfaces/ISafe.sol:10-12`:**
+```solidity
+function execTransactionFromModuleReturnData(
+    address to, uint256 value, bytes memory data, Operation operation
+) external returns (bool success, bytes memory returnData);
+```
+
+Only enabled modules can call this function.
+
+## Method 1: Safe Transaction Builder UI (Recommended)
+
+The easiest way to enable the module is through Safe's web interface.
+
+**From `README.md:66-76`:**
+
+<Steps>
+  <Step title="Open Safe Transaction Builder">
+    Navigate to the [Transaction Builder App](https://app.safe.global/share/safe-app?appUrl=https%3A%2F%2Fapps-portal.safe.global%2Ftx-builder) in Safe's web interface.
+    
+    Or access it directly:
+    1. Go to [app.safe.global](https://app.safe.global)
+    2. Select your target Safe
+    3. Navigate to **Apps** → **Transaction Builder**
+  </Step>
+  
+  <Step title="Load Safe Implementation ABI">
+    In the Transaction Builder:
+    
+    1. Under **"Enter Address or ENS Name"**, paste your Safe's address (usually auto-filled)
+    2. Click **"Use Implementation ABI"**
+    
+    This loads the Safe contract's ABI automatically, including the `enableModule` function.
+    
+    <Note>
+    The Safe's ABI is fetched from the block explorer. Ensure your Safe contract is verified.
+    </Note>
+  </Step>
+  
+  <Step title="Select enableModule Function">
+    1. From the **"Contract Method Selector"** dropdown, choose `enableModule`
+    2. You'll see an input field for the module address parameter
+  </Step>
+  
+  <Step title="Enter Module Address">
+    In the `module` (address) field, paste your deployed COWFeeModule address:
+    
+    ```
+    0x1234567890abcdef1234567890abcdef12345678
+    ```
+    
+    <Warning>
+    Double-check the address! Enabling the wrong module could grant unwanted permissions.
+    </Warning>
+  </Step>
+  
+  <Step title="Add Transaction">
+    Click **"Add transaction"** to add this call to the batch.
+    
+    You should see:
+    - **To**: Your Safe address (calling itself)
+    - **Function**: `enableModule`
+    - **Parameter**: The module address
+  </Step>
+  
+  <Step title="Create and Sign Batch">
+    1. Click **"Create Batch"** at the bottom
+    2. Review the transaction details
+    3. Click **"Send Batch"**
+    4. Sign the transaction with your Safe signer(s)
+    5. Once threshold signatures are collected, execute the transaction
+  </Step>
+  
+  <Step title="Verify Module Enabled">
+    After execution, verify the module is enabled:
+    
+    ```bash
+    cast call $TARGET_SAFE "isModuleEnabled(address)(bool)" $MODULE_ADDRESS --rpc-url $RPC_URL
+    ```
+    
+    Should return: `true` (or `0x0000000000000000000000000000000000000000000000000000000000000001`)
+  </Step>
+</Steps>
+
+## Method 2: Generate Calldata with Cast
+
+For advanced users or programmatic enablement, generate the calldata manually.
+
+**From `README.md:134-140`:**
+
+```bash
+cast calldata "enableModule(address)" <module-address>
+```
+
+**Example:**
+```bash
+cast calldata "enableModule(address)" 0x1234567890abcdef1234567890abcdef12345678
+```
+
+**Output:**
+```
+0x610b592500000000000000000000000012345678 90abcdef1234567890abcdef12345678
+```
+
+This calldata can be used to:
+1. Send via Safe's Transaction Builder in "Raw transaction" mode
+2. Create a transaction via Safe's SDK
+3. Submit via Safe's CLI tools
+
+### Using the Calldata in Transaction Builder
+
+<Steps>
+  <Step title="Open Transaction Builder">
+    Navigate to Apps → Transaction Builder in Safe's UI
+  </Step>
+  
+  <Step title="Enter Raw Transaction">
+    1. In the "Enter Address" field, paste your **Safe's own address**
+    2. In the "Enter ABI" field, leave blank or select "Raw transaction"
+    3. In the "Transaction Data" field, paste the calldata from cast
+  </Step>
+  
+  <Step title="Add and Execute">
+    1. Click "Add transaction"
+    2. Review and send the batch
+    3. Sign and execute with required signatures
+  </Step>
+</Steps>
+
+## Method 3: Programmatic Enablement
+
+Use the Safe SDK or Safe CLI for programmatic enablement:
+
+```typescript
+import Safe from '@safe-global/protocol-kit';
+
+const safe = await Safe.init({
+  provider: rpcUrl,
+  signer: privateKey,
+  safeAddress: targetSafeAddress,
+});
+
+const tx = await safe.createEnableModuleTx(moduleAddress);
+const txResponse = await safe.executeTransaction(tx);
+await txResponse.transactionResponse?.wait();
+```
+
+See [Safe Protocol Kit docs](https://docs.safe.global/sdk/protocol-kit) for details.
+
+## Verify Module Enablement
+
+After enabling, verify the module is active:
+
+### Using Cast
+
+```bash
+MODULE_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
+TARGET_SAFE=0xYourSafeAddress
+
+# Check if module is enabled
+cast call $TARGET_SAFE \
+  "isModuleEnabled(address)(bool)" \
+  $MODULE_ADDRESS \
+  --rpc-url $RPC_URL
+```
+
+**Expected**: `true`
+
+### Using Block Explorer
+
+1. Navigate to your Safe address on the block explorer
+2. Go to **"Read Contract"** tab
+3. Find `getModulesPaginated` or `isModuleEnabled`
+4. Query with your module address
+
+### Using Safe UI
+
+1. Open your Safe at [app.safe.global](https://app.safe.global)
+2. Go to **Settings** → **Modules**
+3. Verify your module address appears in the list
+
+## Module Permissions
+
+Once enabled, the module can:
+
+- ✅ Execute `settle()` calls on the Settlement contract through the Safe
+- ✅ Approve tokens from the Settlement contract to VaultRelayer
+- ✅ Commit presignatures for CoW orders
+- ✅ Wrap native ETH and transfer wrapped tokens
+
+The module **cannot**:
+
+- ❌ Directly transfer Safe assets
+- ❌ Change Safe owners or threshold
+- ❌ Enable/disable other modules
+- ❌ Execute arbitrary transactions (only Settlement interactions)
+
+<Note>
+The module's permissions are limited by its code. Review `src/COWFeeModule.sol` to understand exactly what operations are possible.
+</Note>
+
+## Disabling the Module
+
+If you need to disable the module:
+
+**From `README.md:142-144`:**
+
+### Via Safe UI
+
+1. Go to your Safe at [app.safe.global](https://app.safe.global)
+2. Navigate to **Settings** → **Modules**
+3. Find the COWFeeModule in the list
+4. Click the **trash/remove icon**
+5. Confirm and sign the transaction
+
+### Via Transaction Builder
+
+Create a transaction calling `disableModule`:
+
+```bash
+cast calldata "disableModule(address,address)" \
+  <previous-module-or-sentinel> \
+  <module-to-disable>
+```
+
+<Warning>
+The `disableModule` function requires the previous module in the linked list (or the sentinel value `0x0000000000000000000000000000000000000001` if it's the first module).
+
+Refer to [Safe documentation](https://docs.safe.global/advanced/smart-account-modules) for details.
+</Warning>
+
+## Security Considerations
+
+<Warning>
+**Before Enabling:**
+
+1. **Verify the module address** - Ensure it's the correct deployment
+2. **Review the code** - Check `src/COWFeeModule.sol` to understand permissions
+3. **Verify immutable parameters** - Ensure keeper, receiver, minOut, etc. are correct
+4. **Test on testnet first** - Enable on Sepolia/testnet Safe before mainnet
+</Warning>
+
+<Note>
+Modules have significant permissions. Only enable modules from trusted sources and always review the code.
+</Note>
+
+## Troubleshooting
+
+<Accordion title="Transaction fails with 'GS013'">
+  **Error**: `GS013: Transaction execution failed`
+  
+  **Cause**: The Safe is calling `enableModule` on itself, which requires proper authorization.
+  
+  **Solution**: Ensure:
+  - Transaction is sent **from the Safe to itself**
+  - Sufficient signer approvals (meets threshold)
+  - Calldata is correctly formatted
+</Accordion>
+
+<Accordion title="Module doesn't appear in Safe UI">
+  **Cause**: Transaction may not have executed, or UI hasn't refreshed.
+  
+  **Solution**:
+  1. Verify transaction was mined (check block explorer)
+  2. Refresh the Safe UI
+  3. Verify with `cast call` (see verification section)
+</Accordion>
+
+<Accordion title="Can't find enableModule function in Transaction Builder">
+  **Cause**: ABI not loaded correctly.
+  
+  **Solution**:
+  1. Ensure you clicked "Use Implementation ABI"
+  2. Verify Safe contract is verified on block explorer
+  3. Use raw calldata method as fallback
+</Accordion>
+
+## Next Steps
+
+With the module enabled, proceed to keeper setup:
+
+<Card title="Keeper Setup" icon="robot" href="/operations/keeper-setup">
+  Configure the keeper service to start collecting fees
+</Card>

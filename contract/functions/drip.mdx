@@ -1,0 +1,326 @@
+---
+title: 'drip()'
+description: 'Create CoW Protocol orders for accumulated tokens'
+---
+
+## Function Signature
+
+```solidity
+function drip(address[] calldata _approveTokens, SwapToken[] calldata _swapTokens) 
+    external 
+    onlyKeeper
+```
+
+## Overview
+
+The `drip()` function is the primary operation of the COWFeeModule. It creates presigned CoW Protocol orders to swap accumulated tokens into wrapped native tokens, handles native token wrapping, and transfers the result to the receiver.
+
+<Warning>
+This function can only be called by the authorized keeper address.
+</Warning>
+
+## Parameters
+
+<ParamField path="_approveTokens" type="address[]">
+  Array of token addresses to approve to the vault relayer before creating orders. Tokens that already have sufficient approval can be omitted.
+</ParamField>
+
+<ParamField path="_swapTokens" type="SwapToken[]">
+  Array of SwapToken structs defining the orders to create.
+</ParamField>
+
+## SwapToken Struct
+
+```solidity src/COWFeeModule.sol
+struct SwapToken {
+    address token;
+    uint256 sellAmount;
+    uint256 buyAmount;
+}
+```
+
+<ParamField path="token" type="address">
+  Address of the token to sell.
+</ParamField>
+
+<ParamField path="sellAmount" type="uint256">
+  Amount of token to sell in wei.
+</ParamField>
+
+<ParamField path="buyAmount" type="uint256">
+  Minimum amount of wrapped native token to receive. Must be >= minOut.
+</ParamField>
+
+## Behavior
+
+The function performs the following operations:
+
+### 1. Native Token Handling
+
+Checks for native tokens (ETH, xDAI, etc.) in the Settlement contract:
+
+```solidity src/COWFeeModule.sol
+// Get native token balance.
+// We wrap the native token, as long as its above the minOut (requires an additional interaction)
+uint256 nativeBalance = address(settlement).balance;
+bool hasToWrapNativeToken = nativeBalance >= minOut;
+```
+
+### 2. Wrapped Native Token Balance
+
+Calculates the total wrapped native token balance:
+
+```solidity src/COWFeeModule.sol
+IWrappedNativeToken wrappedNativeTokenContract = IWrappedNativeToken(wrappedNativeToken);
+uint256 wrappedNativeBalance =
+    (hasToWrapNativeToken ? nativeBalance : 0) + wrappedNativeTokenContract.balanceOf(address(settlement));
+```
+
+### 3. Token Approvals
+
+Approves specified tokens to the vault relayer with maximum allowance:
+
+```solidity src/COWFeeModule.sol
+function _approveInteractions(address[] calldata _tokens, IGPv2Settlement.InteractionData[] memory _interactions)
+    internal
+    view
+{
+    for (uint256 i = 0; i < _tokens.length;) {
+        address token = _tokens[i];
+        _interactions[i] = IGPv2Settlement.InteractionData({
+            to: token,
+            value: 0,
+            callData: abi.encodeCall(IERC20.approve, (vaultRelayer, type(uint256).max))
+        });
+
+        unchecked {
+            ++i;
+        }
+    }
+}
+```
+
+### 4. Order Creation
+
+Creates a template order with common parameters:
+
+```solidity src/COWFeeModule.sol
+GPv2Order.Data memory order = GPv2Order.Data({
+    sellToken: IERC20(address(0)),
+    buyToken: wrappedNativeTokenContract,
+    receiver: receiver,
+    sellAmount: 0,
+    buyAmount: 0,
+    validTo: nextValidTo(),
+    appData: appData,
+    feeAmount: 0,
+    kind: GPv2Order.KIND_SELL,
+    partiallyFillable: true,
+    sellTokenBalance: GPv2Order.BALANCE_ERC20,
+    buyTokenBalance: GPv2Order.BALANCE_ERC20
+});
+```
+
+### 5. Presignature Generation
+
+For each swap token, generates a presignature and commits it:
+
+```solidity src/COWFeeModule.sol
+for (uint256 i = 0; i < _swapTokens.length;) {
+    SwapToken calldata swapToken = _swapTokens[i];
+    order.sellToken = IERC20(swapToken.token);
+    order.sellAmount = swapToken.sellAmount;
+    order.buyAmount = swapToken.buyAmount;
+    if (swapToken.buyAmount < minOut) revert BuyAmountTooSmall();
+    bytes memory preSignature = _computePreSignature(order);
+
+    approveAndDripInteractions[i + offset] = IGPv2Settlement.InteractionData({
+        to: address(settlement),
+        value: 0,
+        callData: abi.encodeCall(IGPv2Settlement.setPreSignature, (preSignature, true))
+    });
+
+    unchecked {
+        ++i;
+    }
+}
+```
+
+### 6. Native Token Wrapping
+
+If native balance exceeds minOut, wraps it:
+
+```solidity src/COWFeeModule.sol
+// Wrap native token
+if (hasToWrapNativeToken) {
+    approveAndDripInteractions[len - 2] = IGPv2Settlement.InteractionData({
+        to: wrappedNativeToken,
+        value: nativeBalance,
+        callData: abi.encodeCall(IWrappedNativeToken.deposit, ())
+    });
+}
+```
+
+### 7. Wrapped Token Transfer
+
+Transfers wrapped native tokens to the receiver:
+
+```solidity src/COWFeeModule.sol
+// Transfer wrapped native token to receiver
+if (hasToTransferWrappedNativeToken) {
+    approveAndDripInteractions[len - 1] = IGPv2Settlement.InteractionData({
+        to: wrappedNativeToken,
+        value: 0,
+        callData: abi.encodeCall(IERC20.transfer, (receiver, wrappedNativeBalance))
+    });
+}
+```
+
+## Order Validity Period
+
+Orders are created with a deterministic validity period:
+
+```solidity src/COWFeeModule.sol
+/// @notice The `validTo` that the orders will be createad with
+/// @dev deterministic so the script can push the orders before dripping onchain
+function nextValidTo() public view returns (uint32) {
+    uint256 remainder = block.timestamp % 1 hours;
+    return uint32((block.timestamp - remainder) + 2 hours);
+}
+```
+
+<Note>
+Orders are valid for approximately 1-2 hours, rounded to the next hour boundary. This deterministic calculation allows the keeper to submit orders to the CoW Protocol orderbook before the on-chain transaction confirms.
+</Note>
+
+## Presignature Computation
+
+Presignatures are computed using the order digest and Settlement address:
+
+```solidity src/COWFeeModule.sol
+function _computePreSignature(GPv2Order.Data memory order) internal view returns (bytes memory) {
+    bytes32 orderDigest = GPv2Order.hash(order, domainSeparator);
+    return abi.encodePacked(orderDigest, address(settlement), order.validTo);
+}
+```
+
+The presignature format is:
+- 32 bytes: Order digest (EIP-712 hash)
+- 20 bytes: Settlement contract address
+- 4 bytes: validTo timestamp
+
+## Full Implementation
+
+```solidity src/COWFeeModule.sol
+/// @notice Commit presignatures for sell orders of given tokens of given amounts.
+///         Optionally, also approve the tokens to be spent to the vault relayer.
+function drip(address[] calldata _approveTokens, SwapToken[] calldata _swapTokens) external onlyKeeper {
+    // Get native token balance.
+    // We wrap the native token, as long as its above the minOut (requires an additional interaction)
+    uint256 nativeBalance = address(settlement).balance;
+    bool hasToWrapNativeToken = nativeBalance >= minOut;
+
+    // Wrapped native token is handled differently because it's the buyToken, we just do a normal transfer (requires an additional interaction)
+    // We account for the native balance (only if we wrap it)
+    IWrappedNativeToken wrappedNativeTokenContract = IWrappedNativeToken(wrappedNativeToken);
+    uint256 wrappedNativeBalance =
+        (hasToWrapNativeToken ? nativeBalance : 0) + wrappedNativeTokenContract.balanceOf(address(settlement));
+
+    // Determine if we need a wrappedNativeToken transfer interaction
+    bool hasToTransferWrappedNativeToken = wrappedNativeBalance >= minOut;
+    uint256 len = _approveTokens.length + _swapTokens.length
+        + (hasToWrapNativeToken ? 2 : (hasToTransferWrappedNativeToken ? 1 : 0));
+
+    IGPv2Settlement.InteractionData[] memory approveAndDripInteractions = new IGPv2Settlement.InteractionData[](len);
+    _approveInteractions(_approveTokens, approveAndDripInteractions);
+
+    GPv2Order.Data memory order = GPv2Order.Data({
+        sellToken: IERC20(address(0)),
+        buyToken: wrappedNativeTokenContract,
+        receiver: receiver,
+        sellAmount: 0,
+        buyAmount: 0,
+        validTo: nextValidTo(),
+        appData: appData,
+        feeAmount: 0,
+        kind: GPv2Order.KIND_SELL,
+        partiallyFillable: true,
+        sellTokenBalance: GPv2Order.BALANCE_ERC20,
+        buyTokenBalance: GPv2Order.BALANCE_ERC20
+    });
+
+    uint256 offset = _approveTokens.length;
+    for (uint256 i = 0; i < _swapTokens.length;) {
+        SwapToken calldata swapToken = _swapTokens[i];
+        order.sellToken = IERC20(swapToken.token);
+        order.sellAmount = swapToken.sellAmount;
+        order.buyAmount = swapToken.buyAmount;
+        if (swapToken.buyAmount < minOut) revert BuyAmountTooSmall();
+        bytes memory preSignature = _computePreSignature(order);
+
+        approveAndDripInteractions[i + offset] = IGPv2Settlement.InteractionData({
+            to: address(settlement),
+            value: 0,
+            callData: abi.encodeCall(IGPv2Settlement.setPreSignature, (preSignature, true))
+        });
+
+        unchecked {
+            ++i;
+        }
+    }
+
+    // Wrap native token
+    if (hasToWrapNativeToken) {
+        approveAndDripInteractions[len - 2] = IGPv2Settlement.InteractionData({
+            to: wrappedNativeToken,
+            value: nativeBalance,
+            callData: abi.encodeCall(IWrappedNativeToken.deposit, ())
+        });
+    }
+
+    // Transfer wrapped native token to receiver
+    if (hasToTransferWrappedNativeToken) {
+        approveAndDripInteractions[len - 1] = IGPv2Settlement.InteractionData({
+            to: wrappedNativeToken,
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (receiver, wrappedNativeBalance))
+        });
+    }
+
+    _execInteractions(approveAndDripInteractions);
+}
+```
+
+## Error Handling
+
+<ResponseField name="OnlyKeeper" type="error">
+  Thrown if the caller is not the keeper address.
+</ResponseField>
+
+<ResponseField name="BuyAmountTooSmall" type="error">
+  Thrown if any swapToken's buyAmount is below the minOut threshold (line 133).
+</ResponseField>
+
+## Usage Example
+
+```javascript
+const approveTokens = [
+  '0x6B175474E89094C44Da98b954EedeAC495271d0F', // DAI
+  '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'  // USDC
+];
+
+const swapTokens = [
+  {
+    token: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    sellAmount: ethers.parseUnits('1000', 18),
+    buyAmount: ethers.parseUnits('0.5', 18)
+  },
+  {
+    token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    sellAmount: ethers.parseUnits('500', 6),
+    buyAmount: ethers.parseUnits('0.25', 18)
+  }
+];
+
+await cowFeeModule.drip(approveTokens, swapTokens);
+```

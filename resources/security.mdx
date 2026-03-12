@@ -1,0 +1,287 @@
+---
+title: 'Security Considerations'
+description: 'Security best practices and considerations for the COW Fee Module'
+icon: 'shield-halved'
+---
+
+## Overview
+
+The COW Fee Module handles token swaps on behalf of a Safe multisig. Understanding the security model is critical for safe operation.
+
+## Keeper Access Control
+
+### onlyKeeper Modifier
+
+All sensitive functions in the module are protected by the `onlyKeeper` modifier, which restricts access to a single authorized address:
+
+```solidity
+modifier onlyKeeper() {
+    if (msg.sender != keeper) {
+        revert OnlyKeeper();
+    }
+    _;
+}
+```
+
+**Reference**: `src/COWFeeModule.sol:36-41`
+
+<Warning>
+  The keeper address is the **only** address that can call `approve`, `revoke`, and `drip` functions. Protect the keeper's private key with extreme care.
+</Warning>
+
+### Protected Functions
+
+The following functions can only be called by the keeper:
+
+| Function | Purpose | Risk Level |
+|----------|---------|------------|
+| `approve(address[])` | Approve tokens to vault relayer | High - Enables spending |
+| `revoke(Revocation[])` | Revoke token approvals | Medium - Can prevent swaps |
+| `drip(address[], SwapToken[])` | Execute swap orders | High - Creates and signs orders |
+
+**Reference**: `src/COWFeeModule.sol:64-166`
+
+## Immutable Parameters
+
+### Preventing Reconfiguration Attacks
+
+All critical parameters are declared as `immutable` and set during contract deployment. This prevents reconfiguration attacks where parameters could be changed after deployment:
+
+```solidity
+ISafe public immutable targetSafe;
+address public immutable wrappedNativeToken;
+address public immutable keeper;
+bytes32 public immutable domainSeparator;
+bytes32 public immutable appData;
+IGPv2Settlement public immutable settlement;
+address public immutable vaultRelayer;
+address public immutable receiver;
+uint256 public immutable minOut;
+```
+
+**Reference**: `src/COWFeeModule.sol:15-23`
+
+<Warning>
+  Immutable parameters **cannot be changed** after deployment. If you need to update the keeper, receiver, minOut, or any other parameter, you must deploy a new module and disable the old one.
+</Warning>
+
+### Implications
+
+- **No upgrade path**: The module cannot be upgraded. Changes require new deployment.
+- **Parameter validation critical**: Thoroughly validate all parameters before deployment.
+- **Keeper rotation impossible**: If the keeper's private key is compromised, you must deploy a new module.
+- **Recovery procedures**: Plan for module replacement in your operational runbooks.
+
+## Safe Module Permissions
+
+### Module Privileges
+
+When enabled on a Safe, the COW Fee Module gains the ability to execute transactions on behalf of the Safe via `execTransactionFromModuleReturnData`.
+
+**Reference**: `src/COWFeeModule.sol:193-202`
+
+### What the Module Can Do
+
+<Warning>
+  The module has **extensive permissions** on the Safe. It can execute arbitrary transactions on behalf of the Safe through the settlement contract.
+</Warning>
+
+The module can:
+- Approve tokens held by the Settlement contract to the vault relayer
+- Create CoW Protocol presignatures for swap orders
+- Wrap native tokens
+- Transfer tokens to the receiver address
+
+### What the Module Cannot Do
+
+The module cannot:
+- Execute transactions outside the settlement contract
+- Change its own parameters
+- Access tokens held by the Safe directly (only tokens in the Settlement contract)
+- Execute orders without the keeper's signature
+
+### Risk Mitigation
+
+1. **Audit module code** before enabling on your Safe
+2. **Verify deployment parameters** match your intended configuration
+3. **Test on testnet** before production deployment
+4. **Monitor module activity** using block explorer and logs
+5. **Disable module** immediately if suspicious activity is detected
+
+## Private Key Management
+
+### Keeper Private Key
+
+<Warning>
+  The keeper's private key is the most critical secret in the system. Compromise of this key allows an attacker to create arbitrary swap orders and approve tokens.
+</Warning>
+
+### Best Practices
+
+1. **Use dedicated key**: Create a new keypair exclusively for the keeper role
+2. **Secure storage**: 
+   - Use hardware wallet (Ledger, Trezor) for production
+   - Use encrypted key management systems (AWS KMS, HashiCorp Vault, etc.)
+   - Never commit keys to version control
+3. **Environment isolation**:
+   - Use separate keys for testnet and mainnet
+   - Rotate keys periodically (requires new module deployment)
+4. **Access control**:
+   - Limit who can access the keeper private key
+   - Use principle of least privilege
+   - Audit access logs regularly
+
+### Setting the Private Key
+
+The keeper driver reads the private key from the `PRIVATE_KEY` environment variable:
+
+```bash
+export PRIVATE_KEY="0x..."
+```
+
+**Reference**: `ts/utils/readConfig.ts:19`
+
+<Warning>
+  Never hardcode the private key in scripts or configuration files. Always use environment variables or secure secret management systems.
+</Warning>
+
+## Target Safe Requirements
+
+### Whitelisted Solver Requirement
+
+<Warning>
+  The target Safe **must be whitelisted** as a CoW Protocol solver for the fee module to work correctly. Orders from non-whitelisted addresses may not be filled.
+</Warning>
+
+The Safe that enables this module should be registered as an approved solver with CoW Protocol. Contact the CoW Protocol team to ensure your Safe is whitelisted.
+
+**Reference**: General CoW Protocol documentation
+
+### Safe Configuration
+
+1. **Verify Safe ownership**: Ensure you control the Safe's signers
+2. **Review existing modules**: Check what other modules are enabled
+3. **Limit module permissions**: Only enable modules you trust
+4. **Monitor Safe transactions**: Use Safe's transaction history to audit module activity
+
+## Contract Audit Status
+
+### License
+
+The COW Fee Module is licensed under **GPL-3.0-or-later**:
+
+```solidity
+// SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+**Reference**: `src/COWFeeModule.sol:1`
+
+### Audit Considerations
+
+<Note>
+  While the contract is open source, **no formal security audit information** is included in the repository. Conduct your own security review or hire auditors before using in production with significant value.
+</Note>
+
+1. **Code review**: The contract is relatively simple and auditable
+2. **External dependencies**: Review imported interfaces and libraries
+3. **Testing**: Run the test suite before deployment (`forge test`)
+4. **Deployment verification**: Always verify contract source on block explorers
+
+## Order Validation
+
+### BuyAmount Minimum Check
+
+The module enforces a minimum buyAmount threshold to prevent dust orders:
+
+```solidity
+if (swapToken.buyAmount < minOut) revert BuyAmountTooSmall();
+```
+
+**Reference**: `src/COWFeeModule.sol:133`
+
+### Why This Matters
+
+This check prevents:
+- **Dust attacks**: Creating many small, uneconomical orders
+- **Gas waste**: Posting orders that won't be filled due to low value
+- **Economic attacks**: Clogging the orderbook with spam orders
+
+<Warning>
+  Set `minOut` to a reasonable value during deployment. Too low allows dust orders; too high prevents small legitimate swaps.
+</Warning>
+
+## Operational Security
+
+### Monitoring
+
+1. **Watch keeper transactions**: Monitor all transactions from the keeper address
+2. **Track module activity**: Subscribe to Settlement contract events
+3. **Alert on anomalies**: Set up alerts for unusual activity
+4. **Regular audits**: Review module transactions periodically
+
+### Incident Response
+
+1. **Disable module**: Use Safe UI to disable module immediately if compromised
+2. **Revoke approvals**: Call `revoke()` to remove token approvals
+3. **Deploy new module**: Create new module with new keeper if needed
+4. **Investigate**: Review transaction history to understand the incident
+
+### Network-Specific Risks
+
+| Network | Considerations |
+|---------|----------------|
+| **Mainnet** | High value - maximum security required |
+| **Gnosis** | Lower gas costs - more frequent operations |
+| **Arbitrum** | L2 finality - be aware of withdrawal delays |
+| **Base** | Newer network - additional validation recommended |
+| **Sepolia** | Testnet - use for testing only |
+
+## Token Approval Risks
+
+### Unlimited Approvals
+
+The `approve` function sets unlimited token approvals to the vault relayer:
+
+```solidity
+callData: abi.encodeCall(IERC20.approve, (vaultRelayer, type(uint256).max))
+```
+
+**Reference**: `src/COWFeeModule.sol:184`
+
+<Warning>
+  Unlimited approvals mean the vault relayer can spend all approved tokens. While this is standard for CoW Protocol, be aware of the trust implications.
+</Warning>
+
+### Mitigation
+
+1. **Trust the protocol**: Ensure you trust CoW Protocol's vault relayer
+2. **Monitor approvals**: Track which tokens have been approved
+3. **Revoke when needed**: Use `revoke()` function to remove approvals
+4. **Limit exposure**: Only approve tokens you intend to swap
+
+## Summary of Security Measures
+
+✅ **Implemented in the module:**
+- Access control via `onlyKeeper` modifier
+- Immutable parameters prevent reconfiguration
+- Minimum buyAmount validation prevents dust orders
+- GPL-3.0 open source license for transparency
+
+⚠️ **Your responsibility:**
+- Secure keeper private key management
+- Validate deployment parameters before launch
+- Monitor module activity and Safe transactions
+- Ensure target Safe is whitelisted as solver
+- Plan incident response procedures
+- Conduct security review or audit before production use
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deployment Guide" icon="rocket" href="/setup/deployment">
+    Deploy the module securely
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Resolve common security-related issues
+  </Card>
+</CardGroup>

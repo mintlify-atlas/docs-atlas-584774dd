@@ -1,0 +1,108 @@
+---
+title: "Introduction"
+description: "Automated fee collection infrastructure for CoW Protocol using Safe modules and keeper automation"
+---
+
+## What is COW Fee Module?
+
+COW Fee Module is an infrastructure solution that automates fee collection for CoW Protocol. It combines a Solidity smart contract module with a CLI keeper tool to continuously convert accumulated protocol fees into wrapped native tokens across multiple chains.
+
+The module integrates with Gnosis Safe to enable trustless, permission-controlled automation of token swaps through the CoW Protocol settlement contract.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Safe Module Integration" icon="shield">
+    Permission-controlled fee collection through Gnosis Safe modules with keeper-only access
+  </Card>
+  <Card title="Multi-Chain Support" icon="globe">
+    Deploy and operate across Ethereum, Gnosis, Arbitrum, Base, Avalanche, Polygon, and more
+  </Card>
+  <Card title="Automated Token Swapping" icon="arrows-rotate">
+    CLI keeper tool that discovers, filters, and swaps accumulated fees to wrapped native tokens
+  </Card>
+  <Card title="Flexible Token Discovery" icon="magnifying-glass">
+    Choose between explorer API or on-chain event strategies for token discovery
+  </Card>
+  <Card title="Configurable Filtering" icon="sliders">
+    Set minimum output thresholds and slippage tolerance to optimize swap execution
+  </Card>
+  <Card title="Batch Operations" icon="layer-group">
+    Place up to 250 orders in a single drip call for gas-efficient operations
+  </Card>
+</CardGroup>
+
+## How It Works
+
+The COW Fee Module operates in three main stages:
+
+1. **Token Discovery** — The keeper identifies tokens held by the CoW Protocol settlement contract using either the Ethplorer/Blockscout API or on-chain Trade events
+
+2. **Filtering & Quoting** — Tokens are filtered based on minimum output thresholds, quoted through the CoW Protocol API, and validated against slippage parameters
+
+3. **Execution** — The keeper submits orders to the CoW OrderBook API and executes a transaction calling `drip()` to approve tokens and commit presignatures for the swap orders
+
+<Note>
+All operations are secured by keeper-only permissions enforced at the smart contract level. The module executes transactions through the Safe's `execTransactionFromModule` interface.
+</Note>
+
+## Quick Start
+
+Get started with COW Fee Module in three steps:
+
+<Steps>
+  <Step title="Deploy the Module">
+    Deploy the COWFeeModule contract to your target network using Foundry
+  </Step>
+  <Step title="Enable on Safe">
+    Enable the module on your target Safe (which must be a whitelisted CoW Protocol solver)
+  </Step>
+  <Step title="Run the Keeper">
+    Configure and run the CLI keeper tool to automate fee collection
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Deployment Guide" icon="rocket" href="/setup/deployment">
+    Step-by-step deployment instructions
+  </Card>
+  <Card title="Keeper Setup" icon="gears" href="/operations/keeper-setup">
+    Configure and run the keeper automation
+  </Card>
+  <Card title="Smart Contract Reference" icon="file-contract" href="/contract/cowfeemodule">
+    Explore the contract architecture
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Learn about keeper command options
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+The system consists of two main components:
+
+- **COWFeeModule.sol** — Solidity smart contract that handles token approvals, order presignatures, and native token wrapping through Safe module execution
+
+- **Keeper CLI** — TypeScript-based automation tool that monitors settlement contract balances, posts orders to CoW Protocol, and triggers the drip operation
+
+The module is deployed with immutable parameters including the target Safe address, wrapped native token, keeper address, minimum output threshold, and app data hash.
+
+## Supported Networks
+
+COW Fee Module supports all networks where CoW Protocol is deployed:
+
+- Ethereum Mainnet
+- Gnosis Chain
+- Arbitrum One
+- Base
+- Avalanche
+- Polygon
+- BNB Chain
+- Linea
+- Plasma
+- Ink
+- Sepolia (testnet)
+
+<Info>
+Network-specific configurations including RPC URLs, block explorers, and settlement contract addresses are available in the [Networks Configuration](/configuration/networks) reference.
+</Info>

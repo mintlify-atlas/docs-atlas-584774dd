@@ -1,0 +1,134 @@
+---
+title: 'Contract Verification'
+description: 'Verify the COW Fee Module contract on block explorers'
+icon: 'shield-check'
+---
+
+## Overview
+
+After deploying the COW Fee Module, you can verify the contract code on the chain's block explorer to make it publicly auditable and enable interaction through the explorer's UI.
+
+## Verification Command
+
+To verify an already-deployed COW Fee Module contract, use the following command:
+
+```bash
+source .env
+
+forge verify-contract <fee-module-address> COWFeeModule \
+  --chain-id <chain-id> \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode "constructor(address,address,address,address,bytes32,address,uint256)" \
+    $SETTLEMENT \
+    $TARGET_SAFE \
+    $WRAPPED_NATIVE_TOKEN \
+    $KEEPER \
+    $APP_DATA \
+    $RECEIVER \
+    $MIN_OUT)
+```
+
+**Reference**: `README.md:49-52`
+
+## Requirements
+
+### Etherscan API Key
+
+<Warning>
+  You must set the `ETHERSCAN_API_KEY` environment variable before running the verification command.
+</Warning>
+
+Obtain an API key from the appropriate block explorer:
+- **Ethereum Mainnet**: [Etherscan](https://etherscan.io/apis)
+- **Gnosis Chain**: [Gnosisscan](https://gnosisscan.io/apis)
+- **Arbitrum**: [Arbiscan](https://arbiscan.io/apis)
+- **Base**: [Basescan](https://basescan.org/apis)
+
+### Constructor Arguments
+
+The contract requires the following constructor parameters to be encoded:
+
+| Parameter | Description | Source |
+|-----------|-------------|--------|
+| `SETTLEMENT` | GPv2Settlement contract address | Deployment configuration |
+| `TARGET_SAFE` | Safe multisig address that will use the module | Deployment configuration |
+| `WRAPPED_NATIVE_TOKEN` | Wrapped native token address (WETH/WXDAI/etc.) | Deployment configuration |
+| `KEEPER` | Address authorized to call module functions | Deployment configuration |
+| `APP_DATA` | CoW Protocol app data hash | Deployment configuration |
+| `RECEIVER` | Address to receive swapped funds | Deployment configuration |
+| `MIN_OUT` | Minimum output amount threshold | Deployment configuration |
+
+**Reference**: `src/COWFeeModule.sol:43-51`
+
+## Chain-Specific Verification
+
+### Supported Networks
+
+The module can be verified on any EVM-compatible block explorer. Replace `<chain-id>` with the appropriate value:
+
+- **Mainnet**: `1`
+- **Gnosis**: `100`
+- **Arbitrum**: `42161`
+- **Base**: `8453`
+- **Sepolia** (testnet): `11155111`
+
+### Explorer Endpoints
+
+Foundry's `verify-contract` command automatically detects the correct explorer endpoint based on the chain ID. For custom or less common chains, you may need to specify the `--verifier-url` parameter.
+
+## Verification During Deployment
+
+You can also verify the contract automatically during deployment by adding the `--verify` flag:
+
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url <rpc> \
+  --broadcast \
+  --verify \
+  --private-key <private-key>
+```
+
+<Note>
+  Make sure to set `ETHERSCAN_API_KEY` in your environment before running deployment with the `--verify` flag.
+</Note>
+
+## Verifying Already-Deployed Contracts
+
+If you deployed a contract without verification, or if verification failed during deployment, you can verify it later using the command shown above. You'll need:
+
+1. The deployed contract address
+2. All constructor arguments from the deployment
+3. The correct chain ID
+4. A valid block explorer API key
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Invalid API Key">
+    Ensure your `ETHERSCAN_API_KEY` environment variable is set and valid for the target network's block explorer.
+  </Accordion>
+
+  <Accordion title="Error: Constructor arguments mismatch">
+    Verify that all constructor arguments match the values used during deployment. Check your `.env` file or deployment logs.
+  </Accordion>
+
+  <Accordion title="Error: Contract already verified">
+    If the contract is already verified, you'll see this message. No action needed - the verification is complete.
+  </Accordion>
+
+  <Accordion title="Verification pending for extended period">
+    Block explorer verification can take several minutes during high network activity. Wait a few minutes and check the contract page directly on the explorer.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Once verified, you can:
+- View the contract source code on the block explorer
+- Interact with the contract through the explorer's UI
+- Enable the module on your Safe using the Transaction Builder
+- Start running the keeper to automate fee swaps
+
+<Card title="Enable Module" icon="toggle-on" href="/operations/enable-module">
+  Learn how to enable the module on your Safe
+</Card>

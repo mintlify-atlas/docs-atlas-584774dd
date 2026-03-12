@@ -1,0 +1,390 @@
+---
+title: Deployment
+description: Deploy the COW Fee Module smart contract
+---
+
+This guide walks through deploying the COWFeeModule contract using Foundry's forge script.
+
+## Prerequisites
+
+Before deploying, ensure:
+
+- [x] [Prerequisites](/setup/prerequisites) are met
+- [x] [Environment variables](/setup/environment) are configured
+- [x] `.env` file is populated with correct values
+- [x] Deployer wallet has sufficient native tokens for gas
+
+## Deployment Process
+
+<Steps>
+  <Step title="Load Environment Variables">
+    Source your `.env` file to load configuration:
+    
+    ```bash
+    source .env
+    ```
+  </Step>
+  
+  <Step title="Dry Run Deployment">
+    Test the deployment without broadcasting to the network
+  </Step>
+  
+  <Step title="Deploy Contract">
+    Broadcast the deployment transaction to the network
+  </Step>
+  
+  <Step title="Verify Contract (Optional)">
+    Verify the contract source code on block explorers
+  </Step>
+</Steps>
+
+## Dry Run Deployment
+
+First, simulate the deployment to verify parameters and estimate gas:
+
+**From `README.md:31-36`:**
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url <rpc>
+```
+
+**Example:**
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url $RPC_URL
+```
+
+<Note>
+The dry run simulates the deployment locally without sending any transactions. This helps verify:
+- Constructor parameters are correct
+- Contract compiles successfully
+- Gas estimation
+- No deployment errors
+</Note>
+
+**Expected output:**
+```
+[⠒] Compiling...
+[⠢] Compiling 1 files with 0.8.26
+[⠆] Solc 0.8.26 finished in 1.23s
+Compiler run successful!
+
+Script ran successfully.
+Gas used: 1234567
+
+== Return ==
+0: address 0x...
+```
+
+## Deploy and Verify
+
+Once the dry run succeeds, deploy the contract to the network:
+
+**From `README.md:38-42`:**
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url <rpc> \
+  --broadcast --verify --private-key <private-key>
+```
+
+<Warning>
+Make sure to set the `ETHERSCAN_API_KEY` environment variable for verification to work.
+</Warning>
+
+**Example:**
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --private-key $DEPLOYER_PRIVATE_KEY
+```
+
+<Accordion title="Alternative: Use --account instead of --private-key">
+Foundry supports hardware wallets and encrypted keystores:
+
+```bash
+# Using a named account (more secure)
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --account myaccount
+```
+
+See [Foundry Book - Account Management](https://book.getfoundry.sh/reference/cast/cast-wallet) for details.
+</Accordion>
+
+## Deployment Output
+
+Successful deployment will output:
+
+```bash
+[⠒] Compiling...
+No files changed, compilation skipped
+
+Script ran successfully.
+
+## Setting up 1 EVM.
+==========================
+Chain 1
+
+Estimated gas price: 20.123456789 gwei
+Estimated total gas used for script: 1234567
+Estimated amount required: 0.024827469862263 ETH
+
+==========================
+
+##### mainnet
+✅ Hash: 0x...
+Contract Address: 0x1234567890abcdef1234567890abcdef12345678
+Block: 18123456
+Paid: 0.02345 ETH (1234567 gas * 19 gwei)
+
+✅ Sequence #1 on mainnet | Total Paid: 0.02345 ETH
+
+==========================
+
+START VERIFICATION
+Verifying contract on Etherscan...
+✅ Contract successfully verified
+```
+
+<Note>
+**Save the Contract Address!** You'll need it for:
+- Enabling the module on the Safe
+- Running the keeper service
+- Updating `networks.json`
+</Note>
+
+## Manual Verification
+
+If automatic verification fails, verify manually:
+
+**From `README.md:46-52`:**
+```bash
+source .env
+
+forge verify-contract <fee-module-address> \
+  COWFeeModule \
+  --chain-id <chain-id> \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode "constructor(address,address,address,address,bytes32,address,uint256)" $SETTLEMENT $TARGET_SAFE $WRAPPED_NATIVE_TOKEN $KEEPER $APP_DATA $RECEIVER $MIN_OUT)
+```
+
+**Example for Mainnet (Chain ID 1):**
+```bash
+source .env
+
+forge verify-contract 0x1234567890abcdef1234567890abcdef12345678 \
+  COWFeeModule \
+  --chain-id 1 \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode \
+    "constructor(address,address,address,address,bytes32,address,uint256)" \
+    $SETTLEMENT \
+    $TARGET_SAFE \
+    $WRAPPED_NATIVE_TOKEN \
+    $KEEPER \
+    $APP_DATA \
+    $RECEIVER \
+    $MIN_OUT)
+```
+
+**Constructor Arguments (from `src/COWFeeModule.sol:43-51`):**
+
+| Position | Parameter | Type | Description |
+|----------|-----------|------|-------------|
+| 1 | `_settlement` | `address` | CoW Protocol Settlement contract |
+| 2 | `_targetSafe` | `address` | Gnosis Safe address |
+| 3 | `_wrappedNativeToken` | `address` | Wrapped native token (WETH, etc.) |
+| 4 | `_keeper` | `address` | Keeper wallet address |
+| 5 | `_appData` | `bytes32` | CoW order metadata hash |
+| 6 | `_receiver` | `address` | Fee recipient address |
+| 7 | `_minOut` | `uint256` | Minimum output threshold |
+
+## Validate Deployment Parameters
+
+If updating an existing deployment, compare parameters with the previous version:
+
+**From `README.md:56-63`:**
+```bash
+yarn ts-node compare-deployments.ts \
+  --network <network name> \
+  <address of the newly deployed module>
+```
+
+**Example:**
+```bash
+yarn ts-node compare-deployments.ts \
+  --network mainnet \
+  0x1234567890abcdef1234567890abcdef12345678
+```
+
+This script compares the new deployment with the address in `networks.json` and displays any parameter changes.
+
+**Example output:**
+```
+Comparing deployments on mainnet:
+
+Old Module: 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+New Module: 0x1234567890abcdef1234567890abcdef12345678
+
+Parameter changes:
+  minOut: 1000000000000000000 → 500000000000000000
+  receiver: 0xOldReceiver... → 0xNewReceiver...
+
+All other parameters unchanged.
+```
+
+## Verify Deployment
+
+After deployment, verify the contract state:
+
+```bash
+# Set the deployed module address
+MODULE_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
+
+# Verify constructor parameters
+cast call $MODULE_ADDRESS "settlement()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "targetSafe()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "wrappedNativeToken()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "keeper()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "appData()(bytes32)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "receiver()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "minOut()(uint256)" --rpc-url $RPC_URL
+```
+
+**Verify each matches your `.env` configuration.**
+
+<Note>
+All parameters are immutable after deployment. If you need to change any parameter, you must deploy a new module instance.
+</Note>
+
+## Update networks.json
+
+Add your deployment to `networks.json` for future reference:
+
+**From `networks.json`:**
+```json
+{
+  "COWFeeModule": {
+    "1": {
+      "address": "0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2",
+      "transactionHash": "0x53af2b8111fa359558843a7afff5227a9104da4fec5f368d322e8649c91c070a"
+    },
+    ...
+  }
+}
+```
+
+Add your network's chain ID and deployment details.
+
+## Common Deployment Networks
+
+<Tabs>
+  <Tab title="Ethereum Mainnet">
+    **Chain ID**: 1
+    
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol \
+      --rpc-url https://eth.llamarpc.com \
+      --broadcast --verify \
+      --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+    
+    **Existing Deployment**: `0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2`
+  </Tab>
+  
+  <Tab title="Gnosis Chain">
+    **Chain ID**: 100
+    
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol \
+      --rpc-url https://1rpc.io/gnosis \
+      --broadcast --verify \
+      --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+    
+    **Existing Deployment**: `0x264843e85f8449ee3e9436253f3b8c0282dd4795`
+  </Tab>
+  
+  <Tab title="Arbitrum One">
+    **Chain ID**: 42161
+    
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol \
+      --rpc-url https://arb1.arbitrum.io/rpc \
+      --broadcast --verify \
+      --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+    
+    **Existing Deployment**: `0xaf717efcfec02a65101e3ffb3c07234b8705cafc`
+  </Tab>
+  
+  <Tab title="Base">
+    **Chain ID**: 8453
+    
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol \
+      --rpc-url https://base.llamarpc.com \
+      --broadcast --verify \
+      --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+    
+    **Existing Deployment**: `0xb7ec643b48fe7730ef701d10362a9f8a670ac018`
+  </Tab>
+  
+  <Tab title="Sepolia Testnet">
+    **Chain ID**: 11155111
+    
+    ```bash
+    forge script ./script/DeployCOWFeeModule.s.sol \
+      --rpc-url https://sepolia.drpc.org \
+      --broadcast --verify \
+      --private-key $DEPLOYER_PRIVATE_KEY
+    ```
+    
+    **Existing Deployment**: `0x456ca0e6abf780140583ef3c8b5be2e7804278a6`
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<Accordion title="Error: Insufficient funds for gas">
+  Ensure the deployer wallet has enough native tokens:
+  
+  ```bash
+  cast balance <deployer-address> --rpc-url $RPC_URL
+  ```
+  
+  Transfer more native tokens to the deployer address.
+</Accordion>
+
+<Accordion title="Error: Verification failed">
+  Manual verification options:
+  
+  1. Use the `forge verify-contract` command (see Manual Verification section)
+  2. Verify via block explorer UI by uploading source code
+  3. Check that `ETHERSCAN_API_KEY` is set correctly
+  4. Ensure you're using the correct explorer (Etherscan, Gnosisscan, etc.)
+</Accordion>
+
+<Accordion title="Error: Contract creation failed">
+  Common causes:
+  
+  - Invalid constructor parameters (check `.env` values)
+  - Insufficient gas limit
+  - Network congestion
+  - RPC endpoint issues
+  
+  Review the error message and verify all parameters.
+</Accordion>
+
+## Next Steps
+
+With the module deployed, proceed to:
+
+<Card title="Enable Module" icon="toggle-on" href="/operations/enable-module">
+  Enable the module on your Gnosis Safe
+</Card>

@@ -1,0 +1,515 @@
+---
+title: Networks
+description: Supported networks, configurations, and deployed module addresses
+---
+
+The COW Fee Module supports multiple EVM networks where CoW Protocol is deployed. This page documents network configurations and existing deployments.
+
+## Supported Networks
+
+**From `ts/config.ts:10-22`:**
+
+```typescript
+export const SUPPORTED_NETWORKS = [
+  "mainnet",
+  "gnosis",
+  "arbitrum",
+  "base",
+  "sepolia",
+  "avalanche",
+  "polygon",
+  "bnb",
+  "linea",
+  "plasma",
+  "ink",
+] as const;
+```
+
+## Network Configurations
+
+**From `ts/config.ts:24-83`:**
+
+Each network has specific configuration for RPC endpoints, explorers, and chain IDs.
+
+### Ethereum Mainnet
+
+```typescript
+mainnet: {
+  rpcUrl: "https://eth.llamarpc.com",
+  explorer: "https://explorer.cow.fi",
+  chainId: SupportedChainId.MAINNET,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    1
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://eth.llamarpc.com`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi](https://explorer.cow.fi)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2`
+
+**Wrapped Token:** WETH - `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
+
+**Settlement:** `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+### Gnosis Chain
+
+```typescript
+gnosis: {
+  rpcUrl: "https://1rpc.io/gnosis",
+  explorer: "https://explorer.cow.fi/gc",
+  chainId: SupportedChainId.GNOSIS_CHAIN,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    100
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://1rpc.io/gnosis`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/gc](https://explorer.cow.fi/gc)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0x264843e85f8449ee3e9436253f3b8c0282dd4795`
+
+**Wrapped Token:** WXDAI - `0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d`
+
+**Settlement:** `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+### Arbitrum One
+
+```typescript
+arbitrum: {
+  rpcUrl: "https://arb1.arbitrum.io/rpc",
+  explorer: "https://explorer.cow.fi/arb1",
+  chainId: SupportedChainId.ARBITRUM_ONE,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    42161
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://arb1.arbitrum.io/rpc`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/arb1](https://explorer.cow.fi/arb1)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xaf717efcfec02a65101e3ffb3c07234b8705cafc`
+
+**Wrapped Token:** WETH - `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1`
+
+**Settlement:** `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+### Base
+
+```typescript
+base: {
+  rpcUrl: "https://base.llamarpc.com",
+  explorer: "https://explorer.cow.fi/base",
+  chainId: SupportedChainId.BASE,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    8453
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://base.llamarpc.com`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/base](https://explorer.cow.fi/base)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xb7ec643b48fe7730ef701d10362a9f8a670ac018`
+
+**Wrapped Token:** WETH - `0x4200000000000000000000000000000000000006`
+
+**Settlement:** `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+### Sepolia (Testnet)
+
+```typescript
+sepolia: {
+  rpcUrl: "https://sepolia.drpc.org",
+  explorer: "https://explorer.cow.fi/sepolia",
+  chainId: SupportedChainId.SEPOLIA,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    11155111
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://sepolia.drpc.org`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/sepolia](https://explorer.cow.fi/sepolia)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0x456ca0e6abf780140583ef3c8b5be2e7804278a6`
+
+**Wrapped Token:** WETH - `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`
+
+**Settlement:** `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+
+### Avalanche C-Chain
+
+```typescript
+avalanche: {
+  rpcUrl: "https://api.avax.network/ext/bc/C/rpc",
+  explorer: "https://explorer.cow.fi/avax",
+  chainId: SupportedChainId.AVALANCHE,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    43114
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://api.avax.network/ext/bc/C/rpc`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/avax](https://explorer.cow.fi/avax)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xaf717efcfec02a65101e3ffb3c07234b8705cafc`
+
+### Polygon PoS
+
+```typescript
+polygon: {
+  rpcUrl: "https://polygon-rpc.com",
+  explorer: "https://explorer.cow.fi/pol",
+  chainId: SupportedChainId.POLYGON,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    137
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://polygon-rpc.com`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/pol](https://explorer.cow.fi/pol)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xaf717efcfec02a65101e3ffb3c07234b8705cafc`
+
+### BNB Chain
+
+```typescript
+bnb: {
+  rpcUrl: "https://bsc-dataseed.bnbchain.org",
+  explorer: "https://explorer.cow.fi/bnb",
+  chainId: SupportedChainId.BNB,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    56
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://bsc-dataseed.bnbchain.org`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/bnb](https://explorer.cow.fi/bnb)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xab8bc499b69c56a0c14778ee162bfe245eb26ed9`
+
+### Linea
+
+```typescript
+linea: {
+  rpcUrl: "https://rpc.linea.build",
+  explorer: "https://explorer.cow.fi/linea",
+  chainId: SupportedChainId.LINEA,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    59144
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://rpc.linea.build`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/linea](https://explorer.cow.fi/linea)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0x94333F7b2dFc3bf7EBD4DBd161f6C8BC0C7d6510`
+
+### Plasma
+
+```typescript
+plasma: {
+  rpcUrl: "https://rpc.plasma.to",
+  explorer: "https://explorer.cow.fi/plasma",
+  chainId: SupportedChainId.PLASMA,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    9745
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://rpc.plasma.to`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/plasma](https://explorer.cow.fi/plasma)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0xEF0F60b1E985A748588d57e414aa3E9529b80714`
+
+### Ink
+
+```typescript
+ink: {
+  rpcUrl: "https://rpc-gel.inkonchain.com",
+  explorer: "https://explorer.cow.fi/ink",
+  chainId: SupportedChainId.INK,
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Chain ID" icon="link">
+    57073
+  </Card>
+  <Card title="RPC URL" icon="cloud">
+    `https://rpc-gel.inkonchain.com`
+  </Card>
+  <Card title="CoW Explorer" icon="magnifying-glass">
+    [explorer.cow.fi/ink](https://explorer.cow.fi/ink)
+  </Card>
+</CardGroup>
+
+**Deployed Module:** `0x406e71d2fc4871e1f18c076149ce0973dfe3e8f8`
+
+## Deployment Registry
+
+**From `networks.json`:**
+
+All module deployments are tracked in `networks.json`:
+
+```json
+{
+  "COWFeeModule": {
+    "1": {
+      "address": "0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2",
+      "transactionHash": "0x53af2b8111fa359558843a7afff5227a9104da4fec5f368d322e8649c91c070a"
+    },
+    "100": {
+      "address": "0x264843e85f8449ee3e9436253f3b8c0282dd4795",
+      "transactionHash": "0xfc3f72d19b7eeb53dca8f4046246c46e12e5b12e965f708dd079fc1cfa20a562"
+    },
+    ...
+  }
+}
+```
+
+## Network Comparison Table
+
+| Network | Chain ID | Module Address | Settlement | Token Discovery |
+|---------|----------|----------------|------------|----------------|
+| Mainnet | 1 | `0x8429bf...` | `0x9008D1...` | Explorer |
+| Gnosis | 100 | `0x264843...` | `0x9008D1...` | Explorer |
+| Arbitrum | 42161 | `0xaf717e...` | `0x9008D1...` | Chain |
+| Base | 8453 | `0xb7ec64...` | `0x9008D1...` | Chain |
+| Sepolia | 11155111 | `0x456ca0...` | `0x9008D1...` | Chain |
+| Avalanche | 43114 | `0xaf717e...` | `0x9008D1...` | Chain |
+| Polygon | 137 | `0xaf717e...` | `0x9008D1...` | Chain |
+| BNB | 56 | `0xab8bc4...` | `0x9008D1...` | Chain |
+| Linea | 59144 | `0x94333F...` | `0x9008D1...` | Chain |
+| Plasma | 9745 | `0xEF0F60...` | `0x9008D1...` | Chain |
+| Ink | 57073 | `0x406e71...` | `0x9008D1...` | Chain |
+
+<Note>
+**Token Discovery Strategy:**
+- **Explorer**: Uses Ethplorer/Blockscout APIs (faster, mainnet/gnosis only)
+- **Chain**: Queries Trade events (works everywhere, requires `--lookback-range`)
+</Note>
+
+## CoW Protocol Settlement
+
+Most networks use the same Settlement contract address:
+
+```
+0x9008D19f58AAbD9eD0D60971565AA8510560ab41
+```
+
+This is the official CoW Protocol GPv2Settlement deployment.
+
+**Verify at:** [CoW Protocol Contracts](https://github.com/cowprotocol/contracts/blob/main/networks.json)
+
+## Using Custom Networks
+
+To use a network not in the supported list:
+
+1. **Deploy the module** on the target network
+2. **Use `--rpc-url`** to specify custom RPC endpoint
+3. **Specify `--token-list-strategy chain`** (explorer won't work)
+4. **Verify CoW Protocol** is deployed on that network
+
+**Example:**
+```bash
+yarn ts-node index.ts \
+  --network mainnet \
+  --rpc-url https://custom-network-rpc.com \
+  --module 0xYourModuleAddress \
+  --token-list-strategy chain \
+  --lookback-range 1000
+```
+
+<Warning>
+Ensure:
+- CoW Protocol Settlement contract exists on the network
+- Your Safe is whitelisted as a solver
+- The network supports EIP-1559 transactions (or modify gas configuration)
+</Warning>
+
+## Verifying Deployments
+
+Verify a module deployment:
+
+```bash
+NETWORK=mainnet  # or gnosis, arbitrum, etc.
+MODULE_ADDRESS=0x...
+
+# Get RPC from config or use custom
+RPC_URL=https://eth.llamarpc.com
+
+# Verify contract exists
+cast code $MODULE_ADDRESS --rpc-url $RPC_URL
+
+# Check module parameters
+cast call $MODULE_ADDRESS "settlement()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "keeper()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "receiver()(address)" --rpc-url $RPC_URL
+cast call $MODULE_ADDRESS "minOut()(uint256)" --rpc-url $RPC_URL
+```
+
+## Network-Specific Considerations
+
+<Accordion title="Mainnet">
+  **Gas Costs:** Highest among all networks
+  
+  **Recommendations:**
+  - Use explorer strategy for faster execution
+  - Set higher `minOut` to avoid unprofitable swaps
+  - Consider gas price optimization
+  - Use paid RPC provider for reliability
+</Accordion>
+
+<Accordion title="Gnosis Chain">
+  **Gas Token:** xDAI (stable, low fees)
+  
+  **Recommendations:**
+  - Use explorer strategy (Blockscout)
+  - Lower `minOut` acceptable due to cheap gas
+  - Fast block times (~5s)
+  - Good for frequent keeper runs
+</Accordion>
+
+<Accordion title="Arbitrum">
+  **L2 Network:** Very low gas costs
+  
+  **Recommendations:**
+  - Use chain strategy (no explorer API)
+  - Higher lookback range due to fast blocks (~0.25s)
+  - Very low `minOut` feasible
+  - Frequent keeper runs economical
+</Accordion>
+
+<Accordion title="Base">
+  **L2 Network:** Low gas costs, fast blocks
+  
+  **Recommendations:**
+  - Use chain strategy
+  - Moderate lookback range
+  - Low `minOut` acceptable
+  - Growing ecosystem
+</Accordion>
+
+<Accordion title="Sepolia (Testnet)">
+  **Testing Network:** Free testnet tokens
+  
+  **Recommendations:**
+  - Perfect for testing deployments
+  - Use chain strategy
+  - Get testnet ETH from faucets
+  - Test module enablement flow
+</Accordion>
+
+## Adding New Networks
+
+To add support for a new network:
+
+1. **Update `ts/config.ts`:**
+   ```typescript
+   export const SUPPORTED_NETWORKS = [
+     ...,
+     "newnetwork",
+   ] as const;
+   
+   export const networkSpecificConfigs = {
+     ...,
+     newnetwork: {
+       rpcUrl: "https://rpc.newnetwork.com",
+       explorer: "https://explorer.cow.fi/newnetwork",
+       chainId: SupportedChainId.NEWNETWORK,
+     },
+   };
+   ```
+
+2. **Deploy module** on the new network
+
+3. **Update `networks.json`:**
+   ```json
+   {
+     "COWFeeModule": {
+       ...,
+       "<chain-id>": {
+         "address": "0x...",
+         "transactionHash": "0x..."
+       }
+     }
+   }
+   ```
+
+4. **Test the deployment** on testnet first
+
+## Next Steps
+
+<Card title="How It Works" icon="gears" href="/how-it-works">
+  Learn about the end-to-end fee collection workflow
+</Card>

@@ -1,0 +1,303 @@
+---
+title: CLI Options
+description: Complete reference for all COW Fee Module CLI flags and parameters
+---
+
+The COW Fee Module CLI accepts the following command-line options. All options are optional except `--module`.
+
+## Network Configuration
+
+<ParamField path="--network" type="string" default="mainnet">
+  The blockchain network to operate on.
+  
+  **Choices:**
+  - `mainnet` - Ethereum Mainnet
+  - `gnosis` - Gnosis Chain
+  - `arbitrum` - Arbitrum One
+  - `base` - Base
+  - `sepolia` - Sepolia Testnet
+  - `avalanche` - Avalanche C-Chain
+  - `polygon` - Polygon
+  - `bnb` - BNB Chain
+  - `linea` - Linea
+  - `plasma` - Plasma
+  - `ink` - Ink
+
+  **Default:** `mainnet`
+
+  **Example:**
+  ```bash
+  --network gnosis
+  ```
+</ParamField>
+
+<ParamField path="--rpc-url" type="string">
+  Custom RPC endpoint URL for blockchain queries.
+  
+  If not specified, the CLI uses default RPC URLs from `config.ts:networkSpecificConfigs`:
+  - Mainnet: `https://eth.llamarpc.com`
+  - Gnosis: `https://1rpc.io/gnosis`
+  - Arbitrum: `https://arb1.arbitrum.io/rpc`
+  - etc.
+
+  **Example:**
+  ```bash
+  --rpc-url https://mainnet.infura.io/v3/YOUR-PROJECT-ID
+  ```
+</ParamField>
+
+## Gas Configuration
+
+<ParamField path="--max-fee-per-gas" type="number">
+  Override the `maxFeePerGas` transaction parameter for EIP-1559 transactions.
+  
+  **Units:** GWEI (automatically converted to wei)
+  
+  **Example:**
+  ```bash
+  --max-fee-per-gas 50
+  ```
+  
+  This sets the maximum total fee to 50 GWEI per gas unit.
+</ParamField>
+
+<ParamField path="--max-priority-fee-per-gas" type="number">
+  Override the `maxPriorityFeePerGas` transaction parameter (miner tip) for EIP-1559 transactions.
+  
+  **Units:** GWEI (automatically converted to wei)
+  
+  **Example:**
+  ```bash
+  --max-priority-fee-per-gas 2
+  ```
+  
+  This sets the priority fee (tip) to 2 GWEI per gas unit.
+</ParamField>
+
+## Order Configuration
+
+<ParamField path="--max-orders" type="number" default="250">
+  Maximum number of orders to place in a single `drip` call.
+  
+  The CLI batches token swaps to avoid exceeding transaction gas limits. If more tokens are available than `--max-orders`, only the first batch is processed.
+  
+  **Default:** `250`
+  
+  **Implementation:** See `ts/drip/dripItAll.ts:37-44`
+  
+  ```typescript
+  for (let i = 0; i < tokensToSwap.length; i += config.maxOrders) {
+    const toSwap = tokensToSwap.slice(i, i + config.maxOrders);
+    // ...
+  }
+  ```
+  
+  **Example:**
+  ```bash
+  --max-orders 100
+  ```
+</ParamField>
+
+<ParamField path="--buy-amount-slippage-bps" type="number" default="100">
+  Slippage tolerance applied to the quoted `buyAmount` when creating orders.
+  
+  **Units:** Basis points (1 bp = 0.01%)
+  
+  **Default:** `100` (1%)
+  
+  The CLI requests quotes from the CoW Protocol API and reduces the `buyAmount` by this percentage to account for price movement:
+  
+  ```typescript
+  buyAmount = quotedBuyAmount * (10000 - buyAmountSlippageBps) / 10000
+  ```
+  
+  **Example:**
+  ```bash
+  --buy-amount-slippage-bps 200  # 2% slippage tolerance
+  ```
+  
+  See [Slippage Configuration](/cli/slippage) for more details.
+</ParamField>
+
+<ParamField path="--module" type="string" required>
+  The deployed COWFeeModule contract address.
+  
+  **Required:** Yes
+  
+  This address is used to:
+  - Read module configuration (keeper, settlement, receiver, etc.)
+  - Execute the `drip` function with batched orders
+  - Verify that the provided `PRIVATE_KEY` matches the configured keeper
+  
+  **Example:**
+  ```bash
+  --module 0x1234567890123456789012345678901234567890
+  ```
+</ParamField>
+
+## Token Discovery
+
+<ParamField path="--token-list-strategy" type="string" default="explorer">
+  Strategy to discover tokens held by the Settlement contract.
+  
+  **Choices:**
+  - `explorer` - Use Ethplorer (Mainnet) or Blockscout (Gnosis) APIs
+  - `chain` - Read `Trade` events from the Settlement contract on-chain
+  
+  **Default:** `explorer`
+  
+  The `explorer` strategy is faster but only supports Mainnet and Gnosis. The `chain` strategy works on all networks but requires scanning blockchain events.
+  
+  **Example:**
+  ```bash
+  --token-list-strategy chain
+  ```
+  
+  See [Token List Strategies](/cli/token-list-strategies) for a detailed comparison.
+</ParamField>
+
+<ParamField path="--lookback-range" type="number" default="1000">
+  Number of blocks to scan when using the `chain` token list strategy.
+  
+  **Default:** `1000`
+  
+  **Only applies when:** `--token-list-strategy chain`
+  
+  The CLI queries `Trade` events from the Settlement contract over the last N blocks to discover which tokens have been traded.
+  
+  **Implementation:** See `ts/drip/getTokenBalances.ts:127-130`
+  
+  ```typescript
+  const chunks = chunkRange(
+    currentBlock - config.lookbackRange,
+    currentBlock,
+    LOG_FILTER_RANGE
+  );
+  ```
+  
+  **Example:**
+  ```bash
+  --token-list-strategy chain --lookback-range 5000
+  ```
+  
+  <Warning>
+    Large lookback ranges may cause RPC timeouts. The CLI chunks requests into 1000-block ranges to mitigate this.
+  </Warning>
+</ParamField>
+
+## Execution Control
+
+<ParamField path="--confirm-drip" type="boolean" default="false">
+  Ask for user confirmation before executing the `drip` transaction.
+  
+  **Short flag:** `-c`
+  
+  **Default:** `false`
+  
+  When enabled, the CLI will pause before submitting the transaction and wait for user input.
+  
+  **Example:**
+  ```bash
+  --confirm-drip
+  # or
+  -c
+  ```
+</ParamField>
+
+## Environment Variables
+
+In addition to command-line flags, the CLI requires the following environment variable:
+
+<ParamField path="PRIVATE_KEY" type="string" required>
+  Private key of the keeper wallet authorized to execute fee collection.
+  
+  **Required:** Yes
+  
+  The CLI validates that this private key corresponds to the `keeper` address configured in the COWFeeModule contract.
+  
+  **Example:**
+  ```bash
+  export PRIVATE_KEY=0xabcdef...
+  ```
+  
+  <Warning>
+    Never commit private keys to source control. Use `.env` files (excluded from git) or secure secret management.
+  </Warning>
+</ParamField>
+
+## Complete Example
+
+Here's a comprehensive example using multiple options:
+
+<CodeGroup>
+
+```bash Direct Execution
+#!/bin/bash
+export PRIVATE_KEY=0xabcdef...
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --rpc-url https://eth.llamarpc.com \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy chain \
+  --lookback-range 2000 \
+  --max-orders 150 \
+  --buy-amount-slippage-bps 150 \
+  --max-fee-per-gas 50 \
+  --max-priority-fee-per-gas 2 \
+  --confirm-drip
+```
+
+```bash Docker
+#!/bin/bash
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  cow-fee \
+  --network gnosis \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy explorer \
+  --max-orders 250 \
+  --buy-amount-slippage-bps 100
+```
+
+```bash Minimal
+#!/bin/bash
+export PRIVATE_KEY=0xabcdef...
+
+yarn ts-node index.ts \
+  --module 0x1234567890123456789012345678901234567890
+```
+
+</CodeGroup>
+
+## Implementation Reference
+
+All CLI options are parsed in `ts/utils/readConfig.ts:21-75` using Commander.js:
+
+```typescript readConfig.ts (excerpt)
+const program = new Command()
+  .name("cow-fee")
+  .addOption(new Option("--network <network>").choices(SUPPORTED_NETWORKS))
+  .addOption(new Option("--rpc-url <rpc-url>"))
+  .addOption(new Option(
+      "--max-fee-per-gas <gwei>",
+      "Override maxFeePerGas transaction parameter. Units specified in GWEI"
+  )
+    .argParser(x => ethers.utils.parseUnits(x, 'gwei'))
+  )
+  // ... additional options ...
+  .requiredOption("--module <module>", "COWFeeModule address")
+```
+
+The parsed options are stored in the `IConfig` interface defined in `ts/config.ts:85-107`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Token Discovery" icon="magnifying-glass" href="/cli/token-list-strategies">
+    Learn how --token-list-strategy and --lookback-range work together
+  </Card>
+  <Card title="Slippage Configuration" icon="percentage" href="/cli/slippage">
+    Understand how --buy-amount-slippage-bps affects order execution
+  </Card>
+</CardGroup>

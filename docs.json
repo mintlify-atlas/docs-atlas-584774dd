@@ -1,122 +1,121 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "COW Fee Module",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#7c7c7c",
+    "light": "#0d0d0d",
+    "dark": "#dedede"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/f7fdbcf7-085b-426b-9c6d-515e2d3c037d.jpg",
+  "logo": {
+    "light": "https://media.brand.dev/e5c215f8-feca-4bde-9413-89d62e682ded.png",
+    "dark": "https://media.brand.dev/e5c215f8-feca-4bde-9413-89d62e682ded.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/cowdao-grants/cow-fee"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/cowdao-grants/cow-fee"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Overview",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "how-it-works",
+              "architecture"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Getting Started",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "setup/prerequisites",
+              "setup/environment",
+              "setup/deployment"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Operations",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "operations/enable-module",
+              "operations/keeper-setup",
+              "operations/running-keeper",
+              "operations/docker"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Configuration",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "configuration/module-parameters",
+              "configuration/cli-options",
+              "configuration/networks"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Smart Contract",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Contract Reference",
             "pages": [
-              "api-reference/introduction"
+              "contract/cowfeemodule",
+              "contract/interfaces",
+              "contract/deployment"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Functions",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "contract/functions/drip",
+              "contract/functions/approve",
+              "contract/functions/revoke"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/overview",
+              "cli/options"
+            ]
+          },
+          {
+            "group": "Strategies",
+            "pages": [
+              "cli/token-list-strategies",
+              "cli/slippage"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Information",
+            "pages": [
+              "resources/verification",
+              "resources/troubleshooting",
+              "resources/security"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

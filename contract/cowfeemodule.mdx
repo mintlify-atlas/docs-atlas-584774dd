@@ -1,0 +1,224 @@
+---
+title: 'COWFeeModule Contract'
+description: 'Main contract overview and architecture'
+---
+
+## Overview
+
+The `COWFeeModule` is a Safe module that automates the process of swapping accumulated fee tokens in the CoW Protocol Settlement contract. It enables a designated keeper to create CoW Protocol orders for converting various tokens into a wrapped native token (e.g., WETH), which is then transferred to a specified receiver address.
+
+<Note>
+This contract is deployed as a Safe module and must be enabled on the target Safe to function.
+</Note>
+
+## Contract Purpose
+
+The COWFeeModule serves as an automated fee management system that:
+
+- Collects accumulated tokens from the CoW Protocol Settlement contract
+- Creates presigned CoW Protocol orders to swap tokens to wrapped native tokens
+- Manages token approvals to the vault relayer
+- Wraps native tokens and transfers them to a designated receiver
+- Restricts all operations to a single authorized keeper address
+
+## Immutable State Variables
+
+All configuration parameters are set at deployment and cannot be changed:
+
+```solidity src/COWFeeModule.sol
+// not public to save deployment costs
+ISafe public immutable targetSafe;
+address public immutable wrappedNativeToken;
+address public immutable keeper;
+bytes32 public immutable domainSeparator;
+bytes32 public immutable appData;
+IGPv2Settlement public immutable settlement;
+address public immutable vaultRelayer;
+address public immutable receiver;
+uint256 public immutable minOut;
+```
+
+<ParamField path="targetSafe" type="ISafe">
+  The Safe contract that this module operates on. All interactions are executed through this Safe.
+</ParamField>
+
+<ParamField path="wrappedNativeToken" type="address">
+  The wrapped native token address (e.g., WETH on Ethereum, WXDAI on Gnosis Chain). This is the buy token for all swap orders.
+</ParamField>
+
+<ParamField path="keeper" type="address">
+  The authorized address that can call module functions. Only this address can trigger drip, approve, or revoke operations.
+</ParamField>
+
+<ParamField path="domainSeparator" type="bytes32">
+  The EIP-712 domain separator from the Settlement contract, used for order signature generation.
+</ParamField>
+
+<ParamField path="appData" type="bytes32">
+  The CoW Protocol app data identifier attached to all orders created by this module.
+</ParamField>
+
+<ParamField path="settlement" type="IGPv2Settlement">
+  The CoW Protocol Settlement contract interface.
+</ParamField>
+
+<ParamField path="vaultRelayer" type="address">
+  The vault relayer address from the Settlement contract, which tokens are approved to.
+</ParamField>
+
+<ParamField path="receiver" type="address">
+  The destination address that receives the wrapped native tokens after swaps.
+</ParamField>
+
+<ParamField path="minOut" type="uint256">
+  Minimum output amount threshold. Orders with buyAmount below this value will revert.
+</ParamField>
+
+## Constructor
+
+```solidity src/COWFeeModule.sol
+constructor(
+    address _settlement,
+    address _targetSafe,
+    address _wrappedNativeToken,
+    address _keeper,
+    bytes32 _appData,
+    address _receiver,
+    uint256 _minOut
+) {
+    settlement = IGPv2Settlement(_settlement);
+    vaultRelayer = settlement.vaultRelayer();
+    targetSafe = ISafe(_targetSafe);
+    wrappedNativeToken = _wrappedNativeToken;
+    keeper = _keeper;
+    domainSeparator = settlement.domainSeparator();
+    appData = _appData;
+    receiver = _receiver;
+    minOut = _minOut;
+}
+```
+
+<ParamField path="_settlement" type="address">
+  Address of the CoW Protocol Settlement contract.
+</ParamField>
+
+<ParamField path="_targetSafe" type="address">
+  Address of the Safe that will use this module.
+</ParamField>
+
+<ParamField path="_wrappedNativeToken" type="address">
+  Address of the wrapped native token (WETH, WXDAI, etc.).
+</ParamField>
+
+<ParamField path="_keeper" type="address">
+  Address authorized to execute module operations.
+</ParamField>
+
+<ParamField path="_appData" type="bytes32">
+  App data to be included in all orders.
+</ParamField>
+
+<ParamField path="_receiver" type="address">
+  Destination address for swapped tokens.
+</ParamField>
+
+<ParamField path="_minOut" type="uint256">
+  Minimum output amount for orders.
+</ParamField>
+
+## Security Model
+
+### Access Control
+
+The contract implements a strict access control mechanism through the `onlyKeeper` modifier:
+
+```solidity src/COWFeeModule.sol
+modifier onlyKeeper() {
+    if (msg.sender != keeper) {
+        revert OnlyKeeper();
+    }
+    _;
+}
+```
+
+<Warning>
+All state-changing functions (`drip`, `approve`, `revoke`) can only be called by the keeper address. This prevents unauthorized access to the Safe's assets.
+</Warning>
+
+### Safe Integration
+
+The module executes all operations through the Safe's `execTransactionFromModuleReturnData` function:
+
+```solidity src/COWFeeModule.sol
+function _execFromModule(address _to, bytes memory _cd) internal returns (bytes memory) {
+    (bool success, bytes memory returnData) =
+        targetSafe.execTransactionFromModuleReturnData(_to, 0, _cd, ISafe.Operation.Call);
+    if (!success) {
+        assembly ("memory-safe") {
+            revert(add(returnData, 0x20), mload(returnData))
+        }
+    }
+    return returnData;
+}
+```
+
+### Settlement Contract Interaction
+
+All interactions with the Settlement contract are executed through the Safe, using the Settlement's `settle` function with pre-interactions and no trades:
+
+```solidity src/COWFeeModule.sol
+function _execInteractions(IGPv2Settlement.InteractionData[] memory _interactions) internal {
+    address[] memory tokens = new address[](0);
+    uint256[] memory clearingPrices = new uint256[](0);
+    IGPv2Settlement.TradeData[] memory trades = new IGPv2Settlement.TradeData[](0);
+    IGPv2Settlement.InteractionData[][3] memory interactions =
+        [new IGPv2Settlement.InteractionData[](0), _interactions, new IGPv2Settlement.InteractionData[](0)];
+    bytes memory cd = abi.encodeCall(IGPv2Settlement.settle, (tokens, clearingPrices, trades, interactions));
+    _execFromModule(address(settlement), cd);
+}
+```
+
+## Key Features
+
+### Deterministic Order Timing
+
+The `nextValidTo()` function ensures orders are created with predictable validity periods:
+
+```solidity src/COWFeeModule.sol
+/// @notice The `validTo` that the orders will be createad with
+/// @dev deterministic so the script can push the orders before dripping onchain
+function nextValidTo() public view returns (uint32) {
+    uint256 remainder = block.timestamp % 1 hours;
+    return uint32((block.timestamp - remainder) + 2 hours);
+}
+```
+
+This allows the keeper script to submit orders to the orderbook before the on-chain transaction is confirmed.
+
+### Presignature Generation
+
+Orders are presigned using the Settlement contract's presignature mechanism:
+
+```solidity src/COWFeeModule.sol
+function _computePreSignature(GPv2Order.Data memory order) internal view returns (bytes memory) {
+    bytes32 orderDigest = GPv2Order.hash(order, domainSeparator);
+    return abi.encodePacked(orderDigest, address(settlement), order.validTo);
+}
+```
+
+## Error Handling
+
+The contract defines two custom errors:
+
+```solidity src/COWFeeModule.sol
+error OnlyKeeper();
+error BuyAmountTooSmall();
+```
+
+<ParamField path="OnlyKeeper" type="error">
+  Thrown when a non-keeper address attempts to call a restricted function.
+</ParamField>
+
+<ParamField path="BuyAmountTooSmall" type="error">
+  Thrown when an order's buyAmount is below the minOut threshold (src/COWFeeModule.sol:133).
+</ParamField>

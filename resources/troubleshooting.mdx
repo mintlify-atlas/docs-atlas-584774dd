@@ -1,0 +1,258 @@
+---
+title: 'Troubleshooting'
+description: 'Common issues and solutions when running the COW Fee Module'
+icon: 'wrench'
+---
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Keeper Private Key Mismatch" icon="key">
+    **Error Message:**
+    ```
+    Error: The provided private key belongs to 0x..., which doesn't match the keeper (0x...)
+    ```
+
+    **Cause:**
+    The private key provided via the `PRIVATE_KEY` environment variable does not match the keeper address configured in the deployed module contract.
+
+    **Reference**: `ts/utils/readConfig.ts:121-125`
+
+    **Solution:**
+    1. Verify the keeper address configured in your module:
+       ```bash
+       cast call <module-address> "keeper()" --rpc-url <rpc-url>
+       ```
+    2. Ensure your `PRIVATE_KEY` environment variable corresponds to the keeper address
+    3. If you need to use a different keeper, you must redeploy the module with the new keeper address (the keeper is immutable)
+
+    <Warning>
+      The keeper address is immutable and set during deployment. You cannot change it after deployment.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Module Not Enabled on Safe" icon="shield-xmark">
+    **Error Message:**
+    ```
+    Error: Transaction reverted: GS104
+    ```
+    or execution fails when calling module functions.
+
+    **Cause:**
+    The COW Fee Module has not been enabled on the target Safe contract, so it cannot execute transactions on behalf of the Safe.
+
+    **Solution:**
+    1. Enable the module using the [Safe Transaction Builder UI](https://app.safe.global/share/safe-app?appUrl=https%3A%2F%2Fapps-portal.safe.global%2Ftx-builder)
+    2. Navigate to your target Safe
+    3. Use the Safe's `enableModule` function with the module address
+    4. Verify the module is enabled:
+       ```bash
+       cast call <safe-address> "isModuleEnabled(address)" <module-address> --rpc-url <rpc-url>
+       ```
+
+    **Reference**: `README.md:65-75`
+
+    <Card title="Enable Module Guide" icon="toggle-on" href="/operations/enable-module">
+      See detailed instructions for enabling the module
+    </Card>
+  </Accordion>
+
+  <Accordion title="Insufficient Gas for Drip Transaction" icon="gas-pump">
+    **Symptoms:**
+    - Transaction reverts with out-of-gas error
+    - Transaction fails during execution
+
+    **Cause:**
+    The drip transaction requires gas to approve tokens, set presignatures, and wrap native tokens. Large batches of tokens may exceed gas limits.
+
+    **Solution:**
+    1. Reduce the number of orders in a single drip call using `--max-orders`:
+       ```bash
+       yarn ts-node index.ts --network mainnet --module <address> --max-orders 100
+       ```
+    2. The default is 250 orders; try lowering to 100 or 50
+    3. Ensure your keeper wallet has sufficient native tokens to pay for gas
+    4. Check current gas prices and adjust timing if network congestion is high
+
+    **Reference**: `README.md:88` (max-orders parameter)
+  </Accordion>
+
+  <Accordion title="Token Approval Failures" icon="circle-xmark">
+    **Error Message:**
+    Approval transaction reverts or fails silently.
+
+    **Cause:**
+    Some tokens have non-standard approval behavior or require the allowance to be set to zero before changing it.
+
+    **Solution:**
+    1. Use the `revoke` function to reset approvals to zero first:
+       ```bash
+       # Call revoke for problematic tokens
+       cast send <module-address> "revoke((address,address)[])" \
+         "[(token1,vaultRelayer),(token2,vaultRelayer)]" \
+         --private-key <keeper-private-key>
+       ```
+    2. Then try approving again using the `approve` function
+    3. Some tokens may require special handling - check the token's documentation
+
+    **Reference**: `src/COWFeeModule.sol:72-88` (revoke function)
+  </Accordion>
+
+  <Accordion title="RPC Connection Issues" icon="wifi-slash">
+    **Symptoms:**
+    - Timeout errors
+    - Connection refused
+    - Rate limiting errors
+
+    **Cause:**
+    The RPC endpoint is unavailable, overloaded, or rate-limiting requests.
+
+    **Solution:**
+    1. Verify your RPC URL is correct and accessible:
+       ```bash
+       curl -X POST <rpc-url> \
+         -H "Content-Type: application/json" \
+         -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+       ```
+    2. Use a reliable RPC provider (Infura, Alchemy, QuickNode, etc.)
+    3. Ensure you're not hitting rate limits - consider upgrading your RPC plan
+    4. Try a different RPC endpoint for the same network
+    5. Add retry logic or wait before retrying if you hit rate limits
+
+    **Reference**: `README.md:104` (rpc-url parameter)
+  </Accordion>
+
+  <Accordion title="Order Posting Failures" icon="rectangle-xmark">
+    **Symptoms:**
+    - Orders rejected by CoW Protocol API
+    - "Failed to post order" messages in logs
+
+    **Cause:**
+    Orders may be rejected for various reasons:
+    - Invalid parameters (sellAmount, buyAmount)
+    - Token not supported by CoW Protocol
+    - Insufficient balance
+    - Network or API issues
+
+    **Solution:**
+    1. Check the error message from the API for specific rejection reasons
+    2. Verify the token is tradable on CoW Protocol for your network
+    3. Ensure the Settlement contract actually holds the tokens:
+       ```bash
+       cast call <token-address> "balanceOf(address)" <settlement-address> --rpc-url <rpc-url>
+       ```
+    4. Check that buyAmount meets the minimum threshold (minOut)
+    5. Verify the slippage tolerance is reasonable (default: 100 bps = 1%)
+
+    **Reference**: `ts/drip/postOrders.ts:19-41` (order posting logic)
+  </Accordion>
+
+  <Accordion title="BuyAmount Too Small Error" icon="triangle-exclamation">
+    **Error Message:**
+    ```
+    Error: BuyAmountTooSmall()
+    ```
+
+    **Cause:**
+    The quoted buyAmount for a swap is below the `minOut` threshold configured in the module. This prevents dust orders that aren't economically viable.
+
+    **Solution:**
+    1. Check the configured minOut value:
+       ```bash
+       cast call <module-address> "minOut()" --rpc-url <rpc-url>
+       ```
+    2. If the minOut is too high for your use case, redeploy the module with a lower value
+    3. Wait for more fees to accumulate so swaps meet the minimum threshold
+    4. The driver automatically filters tokens below minOut before attempting to swap
+
+    **Reference**: `src/COWFeeModule.sol:133` (BuyAmountTooSmall check)
+
+    <Warning>
+      The minOut threshold is immutable and set during deployment. You cannot change it after deployment.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="OnlyKeeper Error" icon="user-lock">
+    **Error Message:**
+    ```
+    Error: OnlyKeeper()
+    ```
+
+    **Cause:**
+    A transaction was sent from an address other than the configured keeper address. All module functions (approve, revoke, drip) can only be called by the keeper.
+
+    **Solution:**
+    1. Verify you're using the correct private key for the keeper address
+    2. Check the keeper address:
+       ```bash
+       cast call <module-address> "keeper()" --rpc-url <rpc-url>
+       ```
+    3. Ensure your `PRIVATE_KEY` environment variable is set correctly
+    4. If you need to change the keeper, you must redeploy the module (keeper is immutable)
+
+    **Reference**: `src/COWFeeModule.sol:36-41` (onlyKeeper modifier)
+
+    <Warning>
+      The keeper address is immutable and cannot be changed after deployment.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Target Safe Not Whitelisted" icon="ban">
+    **Symptoms:**
+    - Orders are posted but never filled
+    - No solver picks up the orders
+
+    **Cause:**
+    CoW Protocol requires the Safe to be whitelisted as a solver to use this fee module pattern.
+
+    **Solution:**
+    1. Verify your Safe is whitelisted as a solver with CoW Protocol
+    2. Contact the CoW Protocol team to request whitelisting if needed
+    3. Ensure you're using the correct Safe address that matches the whitelisted solver address
+
+    **Reference**: `README.md:67` (target safe configuration)
+  </Accordion>
+
+  <Accordion title="High Slippage / minOut Threshold Issues" icon="chart-line-down">
+    **Symptoms:**
+    - Many tokens filtered out before swapping
+    - Orders rejected due to buyAmount requirements
+
+    **Cause:**
+    The `--buy-amount-slippage-bps` parameter or the module's `minOut` threshold may be preventing swaps.
+
+    **Solution:**
+    1. Adjust the slippage tolerance (default: 100 bps = 1%):
+       ```bash
+       yarn ts-node index.ts \
+         --network mainnet \
+         --module <address> \
+         --buy-amount-slippage-bps 200  # 2% slippage
+       ```
+    2. Review your minOut threshold - if it's too high, consider redeploying with a lower value
+    3. Monitor token prices to understand why quoted amounts are low
+    4. For volatile tokens, higher slippage may be necessary
+
+    **Reference**: `README.md:89` (buy-amount-slippage-bps parameter)
+  </Accordion>
+</AccordionGroup>
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+1. Check the [GitHub repository](https://github.com/cowprotocol/cow-fee) for known issues
+2. Review the contract source code at `src/COWFeeModule.sol`
+3. Examine the keeper driver logs for detailed error messages
+4. Reach out to the CoW Protocol community on [Discord](https://discord.gg/cowprotocol)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Security Considerations" icon="shield" href="/resources/security">
+    Review security best practices
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the module works
+  </Card>
+</CardGroup>

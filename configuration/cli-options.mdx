@@ -1,0 +1,599 @@
+---
+title: CLI Options Reference
+description: Complete reference for keeper command-line options
+---
+
+The COW Fee Module keeper accepts various command-line options to control its behavior. This reference documents all available options with examples and defaults.
+
+## Command Structure
+
+```bash
+yarn ts-node index.ts [options]
+```
+
+**From `README.md:82-94` and `ts/utils/readConfig.ts:21-75`**
+
+## Help
+
+Display help information:
+
+```bash
+yarn ts-node index.ts --help
+# or
+yarn ts-node index.ts -h
+```
+
+**Output:**
+```
+Usage: cow-fee [options]
+
+Options:
+  --network <network>
+  --rpc-url <rpc-url>
+  --max-fee-per-gas <gwei>
+  --max-priority-fee-per-gas <gwei>
+  --max-orders <max-orders>
+  --buy-amount-slippage-bps <buy-amount-slippage-bps>
+  --module <module>
+  --token-list-strategy <strategy>
+  --lookback-range <n>
+  -c, --confirm-drip
+  -h, --help
+```
+
+## Required Options
+
+### --module
+
+<ParamField path="--module" type="string" required>
+  COWFeeModule contract address
+</ParamField>
+
+**From `ts/utils/readConfig.ts:53`:**
+```typescript
+.requiredOption("--module <module>", "COWFeeModule address")
+```
+
+**Example:**
+```bash
+--module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+```
+
+<Note>
+This is the only required CLI option. All other configuration is read from:
+- The module's immutable parameters (settlement, keeper, receiver, etc.)
+- CLI option defaults
+- Environment variables (PRIVATE_KEY)
+</Note>
+
+## Network Configuration
+
+### --network
+
+<ParamField path="--network" type="string" default="mainnet">
+  Blockchain network to operate on
+</ParamField>
+
+**From `ts/utils/readConfig.ts:23`:**
+```typescript
+.addOption(new Option("--network <network>").choices(SUPPORTED_NETWORKS))
+```
+
+**Supported Networks:**
+
+**From `ts/config.ts:10-22`:**
+- `mainnet` - Ethereum Mainnet
+- `gnosis` - Gnosis Chain
+- `arbitrum` - Arbitrum One
+- `base` - Base
+- `sepolia` - Sepolia Testnet
+- `avalanche` - Avalanche C-Chain
+- `polygon` - Polygon PoS
+- `bnb` - BNB Chain
+- `linea` - Linea
+- `plasma` - Plasma
+- `ink` - Ink
+
+**Example:**
+```bash
+--network gnosis
+```
+
+<Accordion title="Network-Specific Defaults">
+Each network has default configuration:
+
+**From `ts/config.ts:24-83`:**
+
+| Network | RPC URL | Explorer | Chain ID |
+|---------|---------|----------|----------|
+| mainnet | `https://eth.llamarpc.com` | `https://explorer.cow.fi` | 1 |
+| gnosis | `https://1rpc.io/gnosis` | `https://explorer.cow.fi/gc` | 100 |
+| arbitrum | `https://arb1.arbitrum.io/rpc` | `https://explorer.cow.fi/arb1` | 42161 |
+| base | `https://base.llamarpc.com` | `https://explorer.cow.fi/base` | 8453 |
+| sepolia | `https://sepolia.drpc.org` | `https://explorer.cow.fi/sepolia` | 11155111 |
+</Accordion>
+
+### --rpc-url
+
+<ParamField path="--rpc-url" type="string">
+  Custom RPC endpoint (overrides network default)
+</ParamField>
+
+**From `ts/utils/readConfig.ts:24`:**
+```typescript
+.addOption(new Option("--rpc-url <rpc-url>"))
+```
+
+**Example:**
+```bash
+--rpc-url https://mainnet.infura.io/v3/YOUR-PROJECT-ID
+```
+
+<Note>
+If not specified, uses the default RPC URL for the selected network from `ts/config.ts:24-83`.
+</Note>
+
+## Gas Configuration
+
+### --max-fee-per-gas
+
+<ParamField path="--max-fee-per-gas" type="number">
+  Override maximum fee per gas (in gwei)
+</ParamField>
+
+**From `ts/utils/readConfig.ts:25-30`:**
+```typescript
+.addOption(new Option(
+    "--max-fee-per-gas <gwei>",
+    "Override maxFeePerGas transaction parameter. Units specified in GWEI"
+  )
+    .argParser(x => ethers.utils.parseUnits(x, 'gwei'))
+)
+```
+
+**Example:**
+```bash
+--max-fee-per-gas 50  # 50 gwei
+```
+
+**How it works:**
+- Value is specified in gwei (e.g., `50` = 50 gwei)
+- Parsed to wei internally via `ethers.utils.parseUnits`
+- Overrides network's estimated `maxFeePerGas`
+
+<Note>
+If not specified, the keeper fetches gas prices from the network:
+
+**From `ts/drip/drip.ts:59-62`:**
+```typescript
+let feeData = await signerWithProvider.getFeeData();
+if (!feeData.maxFeePerGas) {
+  throw new Error("Failed to get max fee per gas from network");
+}
+```
+</Note>
+
+### --max-priority-fee-per-gas
+
+<ParamField path="--max-priority-fee-per-gas" type="number">
+  Override priority fee (tip) per gas (in gwei)
+</ParamField>
+
+**From `ts/utils/readConfig.ts:31-36`:**
+```typescript
+.addOption(new Option(
+    "--max-priority-fee-per-gas <gwei>",
+    "Override maxPriorityFeePerGas transaction parameter. Units specified in GWEI"
+  )
+    .argParser(x => ethers.utils.parseUnits(x, 'gwei'))
+)
+```
+
+**Example:**
+```bash
+--max-priority-fee-per-gas 2  # 2 gwei tip
+```
+
+<Accordion title="Gas Price Relationship">
+EIP-1559 transactions have two gas price parameters:
+
+- **maxFeePerGas**: Maximum total fee (base fee + priority fee)
+- **maxPriorityFeePerGas**: Tip to the miner/validator
+
+**Relationship:**
+```
+maxFeePerGas >= baseFeePerGas + maxPriorityFeePerGas
+```
+
+The actual fee paid is:
+```
+min(maxFeePerGas, baseFeePerGas + maxPriorityFeePerGas)
+```
+</Accordion>
+
+## Order Configuration
+
+### --max-orders
+
+<ParamField path="--max-orders" type="number" default="250">
+  Maximum number of orders to place in a single drip transaction
+</ParamField>
+
+**From `ts/utils/readConfig.ts:37-44`:**
+```typescript
+.addOption(
+  new Option(
+    "--max-orders <max-orders>",
+    "Maximum number of orders to place in single drip call"
+  )
+    .default(250)
+    .argParser((x) => +x)
+)
+```
+
+**Example:**
+```bash
+--max-orders 100
+```
+
+**How it works:**
+
+**From `ts/drip/dripItAll.ts:37-45`:**
+```typescript
+for (let i = 0; i < tokensToSwap.length; i += config.maxOrders) {
+  const toSwap = tokensToSwap.slice(i, i + config.maxOrders);
+  try {
+    await swapTokens(moduleContract, config, signer, toSwap);
+  } catch (err) {
+    console.error("Error dripping:", err);
+  }
+  break;  // Only processes first batch
+}
+```
+
+<Note>
+**Considerations:**
+
+- Higher values = fewer transactions (more efficient)
+- Too high may exceed gas limits or fail estimation
+- Default (250) is tested and conservative
+- Adjust based on network gas limits
+</Note>
+
+### --buy-amount-slippage-bps
+
+<ParamField path="--buy-amount-slippage-bps" type="number" default="100">
+  Slippage tolerance for buy amounts in basis points (100 = 1%)
+</ParamField>
+
+**From `ts/utils/readConfig.ts:45-52`:**
+```typescript
+.addOption(
+  new Option(
+    "--buy-amount-slippage-bps <buy-amount-slippage-bps>",
+    "Tolerance to add to the quoted buyAmount"
+  )
+    .default(100)
+    .argParser((x) => +x)
+)
+```
+
+**Example:**
+```bash
+--buy-amount-slippage-bps 200  # 2% slippage
+```
+
+**How it works:**
+
+**From `ts/drip/getTokensToSwap.ts:73-80`:**
+```typescript
+const quotesFiltered = unfilteredWithBalanceAndAllowance
+  .map((token, i) => ({
+    ...token,
+    buyAmount: BigNumber.from(
+      (quotes[i].status === "fulfilled" && quotes[i].value.quote.buyAmount) || 0
+    )
+      .mul(10000 - config.buyAmountSlippageBps)  // Reduce by slippage
+      .div(10000),
+  }))
+```
+
+**Formula:**
+```
+adjustedBuyAmount = quotedBuyAmount * (10000 - slippageBps) / 10000
+```
+
+**Examples:**
+- 100 bps (1%): `buyAmount * 9900 / 10000` = 99% of quote
+- 200 bps (2%): `buyAmount * 9800 / 10000` = 98% of quote
+- 50 bps (0.5%): `buyAmount * 9950 / 10000` = 99.5% of quote
+
+<Note>
+This protects against price movements between quote time and order execution. Higher slippage = more likely to fill, but worse price.
+</Note>
+
+## Token Discovery
+
+### --token-list-strategy
+
+<ParamField path="--token-list-strategy" type="string" default="explorer">
+  Strategy for discovering tokens held by Settlement contract
+</ParamField>
+
+**From `ts/utils/readConfig.ts:54-61`:**
+```typescript
+.addOption(
+  new Option(
+    "--token-list-strategy <strategy>",
+    "Strategy to use to get the list of tokens to swap on"
+  )
+    .choices(["explorer", "chain"] as const)
+    .default("explorer" as "explorer" | "chain")
+)
+```
+
+**Choices:**
+
+<Tabs>
+  <Tab title="explorer (Default)">
+    Uses blockchain explorer APIs to fetch token balances
+    
+    **Supported networks:**
+    - Mainnet: Ethplorer API
+    - Gnosis: Blockscout API
+    
+    **From `ts/drip/getTokenBalances.ts:168-176`:**
+    ```typescript
+    switch (strategy) {
+      case "explorer": {
+        switch (network) {
+          case "mainnet": {
+            return getTokenInfosFromEthPlorer(address);
+          }
+          case "gnosis": {
+            return getTokenInfosFromBlockscout(address);
+          }
+        }
+      }
+    }
+    ```
+    
+    **Advantages:**
+    - Fast
+    - Low RPC usage
+    - No need for event scanning
+    
+    **Limitations:**
+    - Only works on supported networks
+    - Depends on external API availability
+  </Tab>
+  
+  <Tab title="chain">
+    Queries on-chain `Trade` events from Settlement contract
+    
+    **From `ts/drip/getTokenBalances.ts:112-159`:**
+    
+    Scans Settlement contract events over a lookback range to discover traded tokens.
+    
+    **Advantages:**
+    - Works on any network
+    - No external dependencies
+    - Fully decentralized
+    
+    **Limitations:**
+    - Slower execution
+    - Higher RPC usage
+    - Requires lookback range configuration
+  </Tab>
+</Tabs>
+
+**Example:**
+```bash
+--token-list-strategy chain
+```
+
+### --lookback-range
+
+<ParamField path="--lookback-range" type="number" default="1000">
+  Number of blocks to scan for Trade events (chain strategy only)
+</ParamField>
+
+**From `ts/utils/readConfig.ts:62-69`:**
+```typescript
+.addOption(
+  new Option(
+    "--lookback-range <n>",
+    "Last <n> number of blocks to check the `Trade` events for"
+  )
+    .default(1000)
+    .argParser((x) => +x)
+)
+```
+
+**Example:**
+```bash
+--lookback-range 5000
+```
+
+**How it works:**
+
+**From `ts/drip/getTokenBalances.ts:125-136`:**
+```typescript
+const currentBlock = await provider.getBlockNumber();
+
+const chunks = chunkRange(
+  currentBlock - config.lookbackRange,
+  currentBlock,
+  LOG_FILTER_RANGE  // 1000 blocks per query
+);
+const logRanges = await Promise.all(
+  chunks.map(async ([start, end]) => {
+    return await settlement.queryFilter(tradeFilter, start, end);
+  })
+);
+```
+
+<Note>
+**Choosing the Right Range:**
+
+- **Frequent runs** (every hour): 500-1000 blocks
+- **Infrequent runs** (daily): 5000-10000 blocks
+- **Network block time matters**:
+  - Ethereum: ~12s/block → 1000 blocks ≈ 3.3 hours
+  - Gnosis: ~5s/block → 1000 blocks ≈ 1.4 hours
+  - Arbitrum: ~0.25s/block → 1000 blocks ≈ 4 minutes
+
+**Trade-offs:**
+- Larger range = more tokens discovered, but slower and higher RPC load
+- Smaller range = faster, but may miss tokens from older trades
+</Note>
+
+## Interactive Options
+
+### --confirm-drip
+
+<ParamField path="--confirm-drip" type="boolean" default="false">
+  Prompt for confirmation before sending drip transaction
+</ParamField>
+
+**From `ts/utils/readConfig.ts:70-75`:**
+```typescript
+.addOption(
+  new Option(
+    "-c, --confirm-drip",
+    "Ask for confirmation before dripping"
+  ).default(false)
+)
+```
+
+**Example:**
+```bash
+--confirm-drip
+# or short form
+-c
+```
+
+**Behavior:**
+
+**From `ts/drip/drip.ts:24-30`:**
+```typescript
+const confirmation = confirmDrip
+  ? await confirmMessage("\nDo you want to send this transaction? (yes/no): ")
+  : true;
+
+if (!confirmation) {
+  console.log("All right! Transaction cancelled");
+  return;
+}
+```
+
+When enabled, displays transaction details and waits for user input:
+
+```
+Drip transaction parameters: {
+  from: '0x...',
+  to: '0x...',
+  maxFeePerGas: '25000000000',
+  ...
+}
+
+Do you want to send this transaction? (yes/no): 
+```
+
+<Note>
+Useful for:
+- Manual testing
+- One-time runs
+- Reviewing transaction before execution
+
+Not suitable for:
+- Automated/scheduled execution
+- Unattended operations
+</Note>
+
+## Complete Examples
+
+### Mainnet with Explorer Strategy
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2 \
+  --rpc-url https://eth.llamarpc.com \
+  --max-orders 250 \
+  --buy-amount-slippage-bps 100 \
+  --token-list-strategy explorer
+```
+
+### Gnosis with Chain Strategy
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network gnosis \
+  --module 0x264843e85f8449ee3e9436253f3b8c0282dd4795 \
+  --rpc-url https://1rpc.io/gnosis \
+  --token-list-strategy chain \
+  --lookback-range 2000 \
+  --max-orders 200
+```
+
+### Sepolia Testnet with Gas Overrides
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network sepolia \
+  --module 0x456ca0e6abf780140583ef3c8b5be2e7804278a6 \
+  --max-fee-per-gas 10 \
+  --max-priority-fee-per-gas 1 \
+  --confirm-drip \
+  --token-list-strategy chain \
+  --lookback-range 500
+```
+
+### Arbitrum with Custom RPC and High Slippage
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network arbitrum \
+  --module 0xaf717efcfec02a65101e3ffb3c07234b8705cafc \
+  --rpc-url https://arb1.arbitrum.io/rpc \
+  --buy-amount-slippage-bps 200 \
+  --max-orders 150
+```
+
+## Configuration Precedence
+
+Configuration is resolved in this order (highest to lowest priority):
+
+1. **CLI options** (e.g., `--rpc-url`)
+2. **Module parameters** (read from on-chain via contract calls)
+3. **Network defaults** (from `ts/config.ts`)
+4. **Option defaults** (from CLI parser)
+5. **Environment variables** (`PRIVATE_KEY` only)
+
+**Example:**
+```bash
+# CLI --rpc-url overrides network default
+--network mainnet --rpc-url https://custom-rpc.com
+# Uses https://custom-rpc.com, not https://eth.llamarpc.com
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Module Parameters" icon="sliders" href="/configuration/module-parameters">
+    Understanding smart contract configuration
+  </Card>
+  
+  <Card title="Networks" icon="globe" href="/configuration/networks">
+    Supported networks and deployment addresses
+  </Card>
+</CardGroup>

@@ -1,0 +1,146 @@
+---
+title: CLI Overview
+description: Understanding the COW Fee Module command-line interface
+---
+
+The COW Fee Module CLI automates the collection of trading fees from the CoW Protocol Settlement contract by swapping accumulated token balances into wrapped native tokens (e.g., WETH).
+
+## Entry Point
+
+The CLI is invoked through `index.ts`, which orchestrates the fee collection workflow:
+
+```typescript index.ts
+const main = async () => {
+  const [config, provider] = await readConfig();
+  console.log("Config options:\n", config.options);
+
+  const wallet = new ethers.Wallet(config.privateKey, provider);
+  console.log("Wallet address:", wallet.address);
+
+  await dripItAll(config, wallet, provider);
+  process.exit(0);
+};
+```
+
+## Main Workflow
+
+The `dripItAll` function in `ts/drip/dripItAll.ts` executes the core fee collection logic:
+
+1. **Calculate ETH to wrap** - Determines if any native ETH needs to be wrapped
+2. **Discover tokens to swap** - Uses the configured token list strategy to find tokens held by the Settlement contract
+3. **Get quotes and filter** - Obtains CoW Protocol quotes for each token and filters out illiquid tokens
+4. **Execute drip** - Submits batched orders to the CoW Protocol orderbook and approves tokens as needed
+5. **Report results** - Logs expected proceeds and provides an explorer link to track progress
+
+## Command Structure
+
+The CLI is built using [Commander.js](https://github.com/tj/commander.js) and follows this structure:
+
+```bash
+Usage: cow-fee [options]
+```
+
+Configuration is provided through:
+- **Environment variables**: `PRIVATE_KEY` (required)
+- **Command-line flags**: Network, RPC URL, module address, gas settings, etc.
+
+See [CLI Options](/cli/options) for the complete list of available flags.
+
+## Usage Examples
+
+### Basic Usage
+
+Run fee collection on Ethereum mainnet:
+
+```bash
+export PRIVATE_KEY=0x...
+
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x1234567890123456789012345678901234567890
+```
+
+### Advanced Usage
+
+Customize token discovery, gas settings, and order batching:
+
+```bash
+yarn ts-node index.ts \
+  --network mainnet \
+  --rpc-url https://eth.llamarpc.com \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy chain \
+  --lookback-range 2000 \
+  --max-orders 100 \
+  --max-fee-per-gas 50 \
+  --max-priority-fee-per-gas 2 \
+  --buy-amount-slippage-bps 200
+```
+
+### Docker Usage
+
+```bash
+# Build the Docker image
+docker build -t cow-fee .
+
+# Run the container
+docker run --rm \
+  -e PRIVATE_KEY=$PRIVATE_KEY \
+  cow-fee \
+  --network mainnet \
+  --module 0x1234567890123456789012345678901234567890 \
+  --max-orders 250
+```
+
+## Expected Output
+
+When the CLI runs successfully, you'll see output similar to:
+
+```
+Config options:
+ { network: 'mainnet', module: '0x...', ... }
+Wallet address: 0x...
+ETH to wrap: 0.0
+Tokens to swap: [
+  {
+    symbol: 'USDC',
+    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    balance: '1234.56',
+    buyAmount: '1.23',
+    needsApproval: false
+  },
+  ...
+]
+Total tokens pre-filter: 45
+Total tokens after filtering by quotes api: 12
+Total tokens after filtering by minOut: 8
+
+Fee collection for chain mainnet initiated (8 orders). 
+Expecting proceeds of 5.67 WETH!
+
+Follow the progress at https://explorer.cow.fi/address/0x...
+```
+
+The output includes:
+- Configuration summary
+- Keeper wallet address
+- Token discovery and filtering results
+- Expected WETH proceeds
+- Explorer link to track order execution
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Options" icon="sliders" href="/cli/options">
+    Learn about all available command-line flags and parameters
+  </Card>
+  <Card title="Token Discovery" icon="magnifying-glass" href="/cli/token-list-strategies">
+    Understand how the CLI discovers tokens to swap
+  </Card>
+  <Card title="Slippage Configuration" icon="percentage" href="/cli/slippage">
+    Configure slippage tolerance for order execution
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/setup/deployment">
+    Deploy and configure a new COW Fee Module
+  </Card>
+</CardGroup>

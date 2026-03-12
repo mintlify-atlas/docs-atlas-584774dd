@@ -1,0 +1,297 @@
+---
+title: Token List Strategies
+description: How the CLI discovers tokens to swap from the Settlement contract
+---
+
+The COW Fee Module CLI supports two strategies for discovering which tokens are held by the CoW Protocol Settlement contract: **explorer** (API-based) and **chain** (event-based).
+
+## Strategy Comparison
+
+| Feature | `explorer` | `chain` |
+|---------|------------|----------|
+| **Data Source** | Ethplorer / Blockscout API | Settlement contract `Trade` events |
+| **Networks** | Mainnet, Gnosis only | All supported networks |
+| **Speed** | Fast (single API call) | Slower (requires event scanning) |
+| **Configuration** | None | `--lookback-range` |
+| **Token Metadata** | Includes symbol, decimals | Requires additional RPC calls |
+| **Rate Limits** | Subject to API limits | Limited by RPC provider |
+
+## Explorer Strategy
+
+The `explorer` strategy queries external indexing APIs to retrieve token balances.
+
+### How It Works
+
+1. **Mainnet**: Calls the [Ethplorer API](https://api.ethplorer.io)
+   ```typescript
+   GET https://api.ethplorer.io/getAddressInfo/{settlement}?apiKey=freekey
+   ```
+
+2. **Gnosis Chain**: Calls the [Blockscout API](https://gnosis.blockscout.com)
+   ```typescript
+   GET https://gnosis.blockscout.com/api/v2/addresses/{settlement}/token-balances
+   ```
+
+3. Returns token information including:
+   - Token address
+   - Symbol (e.g., "USDC")
+   - Decimals (e.g., 6)
+   - Current balance
+
+### Implementation
+
+```typescript ts/drip/getTokenBalances.ts (excerpt)
+const getTokenInfosFromEthPlorer = async (
+  address: string
+): Promise<ITokenInfo[]> => {
+  const { data } = await axios.get<IEthplorerResponse>(
+    `https://api.ethplorer.io/getAddressInfo/${address}?apiKey=freekey`
+  );
+
+  return data.tokens.map((token) => ({
+    address: token.tokenInfo.address,
+    decimals: +token.tokenInfo.decimals,
+    symbol: token.tokenInfo.symbol,
+    balance: token.rawBalance,
+  }));
+};
+```
+
+### Usage
+
+```bash
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x... \
+  --token-list-strategy explorer
+```
+
+<Note>
+  The `explorer` strategy is the **default** and doesn't require additional configuration.
+</Note>
+
+### Limitations
+
+- **Network Support**: Only works on Mainnet and Gnosis Chain
+- **API Availability**: Depends on third-party services (Ethplorer, Blockscout)
+- **Rate Limits**: Free tier has usage quotas
+
+## Chain Strategy
+
+The `chain` strategy scans blockchain events to discover tokens that have been traded on the Settlement contract.
+
+### How It Works
+
+1. **Query Recent Blocks**: Fetches `Trade` events from the Settlement contract over the last `--lookback-range` blocks
+2. **Extract Token Addresses**: Collects all unique `sellToken` and `buyToken` addresses from the events
+3. **Fetch Decimals**: Uses multicall to retrieve decimal values for each token
+4. **Return Token List**: Builds a list of potential tokens (without symbol information)
+
+### Implementation
+
+```typescript ts/drip/getTokenBalances.ts (excerpt)
+const getTokenInfosFromChain = async (
+  config: IConfig
+): Promise<ITokenInfo[]> => {
+  const LOG_FILTER_RANGE = 1000;
+  const provider = new ethers.providers.JsonRpcProvider(config.rpcUrl);
+  const settlement = new ethers.Contract(
+    config.gpv2Settlement,
+    settlementAbi,
+    provider
+  );
+  const tradeFilter = settlement.filters.Trade();
+  const currentBlock = await provider.getBlockNumber();
+
+  // Chunk the lookback range into 1000-block segments
+  const chunks = chunkRange(
+    currentBlock - config.lookbackRange,
+    currentBlock,
+    LOG_FILTER_RANGE
+  );
+  
+  const logRanges = await Promise.all(
+    chunks.map(async ([start, end]) => {
+      return await settlement.queryFilter(tradeFilter, start, end);
+    })
+  );
+  const logs = logRanges.flat();
+
+  // Extract unique token addresses
+  const allTokens = Array.from(
+    new Set(
+      logs.map((log) => [log.args!.sellToken, log.args!.buyToken]).flat()
+    ).values()
+  ).filter(
+    (x) =>
+      x.toLowerCase() !==
+      "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".toLowerCase()
+  );
+
+  // Fetch decimals via multicall
+  const allDecimals = await getDecimals(provider, allTokens);
+  const allTokenInfo: ITokenInfo[] = allTokens.map((token, idx) => {
+    const decimals = allDecimals[idx];
+    return {
+      address: token,
+      decimals,
+      symbol: "", // Not available from on-chain data
+    };
+  });
+  return allTokenInfo;
+};
+```
+
+### Configuration
+
+The `chain` strategy is controlled by two CLI options:
+
+<ParamField path="--token-list-strategy" type="string" default="explorer">
+  Set to `chain` to enable event-based discovery.
+</ParamField>
+
+<ParamField path="--lookback-range" type="number" default="1000">
+  Number of blocks to scan for `Trade` events.
+  
+  **Recommended values:**
+  - **1000**: Fast, recent trades only
+  - **5000**: Moderate, captures ~1 day on Mainnet
+  - **50000**: Slow, captures ~1 week on Mainnet
+  
+  <Warning>
+    Large ranges may cause RPC timeouts. The CLI chunks requests into 1000-block segments to mitigate this.
+  </Warning>
+</ParamField>
+
+### Usage
+
+```bash
+yarn ts-node index.ts \
+  --network arbitrum \
+  --module 0x... \
+  --token-list-strategy chain \
+  --lookback-range 5000
+```
+
+### Trade-offs
+
+**Advantages:**
+- Works on **all supported networks** (not limited to Mainnet/Gnosis)
+- No dependency on external APIs
+- Discovers tokens based on actual trading activity
+
+**Disadvantages:**
+- **Slower**: Requires scanning blockchain events and making multiple RPC calls
+- **Incomplete metadata**: Doesn't retrieve token symbols (not needed for swapping)
+- **Lookback window**: May miss tokens that haven't been traded recently
+- **RPC pressure**: Large lookback ranges increase RPC load
+
+## Choosing a Strategy
+
+### Use `explorer` when:
+- Running on **Mainnet** or **Gnosis Chain**
+- You need **fast execution**
+- You want **token symbols** in the output logs
+- You trust Ethplorer/Blockscout availability
+
+### Use `chain` when:
+- Running on **other networks** (Arbitrum, Base, Polygon, etc.)
+- You need **API independence**
+- You want to discover tokens **based on recent trading activity**
+- You have a reliable RPC provider that can handle event queries
+
+## Code Examples
+
+<CodeGroup>
+
+```bash Explorer Strategy (Mainnet)
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy explorer
+```
+
+```bash Chain Strategy (Arbitrum)
+yarn ts-node index.ts \
+  --network arbitrum \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy chain \
+  --lookback-range 2000
+```
+
+```bash Chain Strategy (Gnosis, large range)
+yarn ts-node index.ts \
+  --network gnosis \
+  --module 0x1234567890123456789012345678901234567890 \
+  --token-list-strategy chain \
+  --lookback-range 10000
+```
+
+</CodeGroup>
+
+## Output Differences
+
+### Explorer Strategy Output
+
+```
+Tokens to swap: [
+  {
+    symbol: 'USDC',
+    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    balance: '1234.56',
+    buyAmount: '1.23',
+    needsApproval: false
+  },
+  {
+    symbol: 'DAI',
+    address: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    balance: '5678.90',
+    buyAmount: '5.67',
+    needsApproval: true
+  }
+]
+```
+
+### Chain Strategy Output
+
+```
+Tokens to swap: [
+  {
+    symbol: '',
+    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    balance: '1234.56',
+    buyAmount: '1.23',
+    needsApproval: false
+  },
+  {
+    symbol: '',
+    address: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    balance: '5678.90',
+    buyAmount: '5.67',
+    needsApproval: true
+  }
+]
+```
+
+<Note>
+  Token symbols are empty when using the `chain` strategy, but this doesn't affect functionality.
+</Note>
+
+## Implementation Reference
+
+The token discovery logic is implemented in:
+- **Main dispatcher**: `ts/drip/getTokenBalances.ts:161-182`
+- **Explorer (Ethplorer)**: `ts/drip/getTokenBalances.ts:27-40`
+- **Explorer (Blockscout)**: `ts/drip/getTokenBalances.ts:53-68`
+- **Chain (Events)**: `ts/drip/getTokenBalances.ts:112-159`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Options" icon="sliders" href="/cli/options">
+    Learn about all available command-line flags
+  </Card>
+  <Card title="Slippage Configuration" icon="percentage" href="/cli/slippage">
+    Understand how slippage affects order execution
+  </Card>
+</CardGroup>

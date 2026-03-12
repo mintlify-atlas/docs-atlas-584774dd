@@ -1,0 +1,275 @@
+---
+title: Slippage Configuration
+description: How to configure slippage tolerance for COW Fee Module orders
+---
+
+The COW Fee Module CLI applies slippage tolerance to protect against price movement between quote time and order execution. This is controlled by the `--buy-amount-slippage-bps` parameter.
+
+## What is Slippage?
+
+When the CLI requests a quote from the CoW Protocol API, it receives:
+- A `sellAmount` (how much of the token to sell)
+- A `buyAmount` (how much WETH to expect in return)
+
+However, prices can change between:
+1. **Quote time**: When the CLI fetches the quote
+2. **Execution time**: When the order is filled by a solver
+
+To prevent orders from failing due to unfavorable price movements, the CLI **reduces** the `buyAmount` by a slippage tolerance percentage.
+
+## The `--buy-amount-slippage-bps` Parameter
+
+<ParamField path="--buy-amount-slippage-bps" type="number" default="100">
+  Slippage tolerance applied to the quoted `buyAmount` when creating orders.
+  
+  **Units:** Basis points (bps)
+  - 1 bps = 0.01%
+  - 100 bps = 1%
+  - 200 bps = 2%
+  
+  **Default:** `100` (1%)
+  
+  **Formula:**
+  ```
+  adjustedBuyAmount = quotedBuyAmount × (10000 - buyAmountSlippageBps) / 10000
+  ```
+</ParamField>
+
+### Example Calculation
+
+Given:
+- Quoted `buyAmount` = 10 WETH
+- `--buy-amount-slippage-bps 100` (1%)
+
+```
+adjustedBuyAmount = 10 × (10000 - 100) / 10000
+                  = 10 × 9900 / 10000
+                  = 9.9 WETH
+```
+
+The order will execute if it receives **at least 9.9 WETH**, tolerating a 1% price movement.
+
+## How It Works
+
+The slippage adjustment happens in `ts/drip/getTokensToSwap.ts:73-81`:
+
+```typescript ts/drip/getTokensToSwap.ts (excerpt)
+const quotesFiltered = unfilteredWithBalanceAndAllowance
+  .map((token, i) => ({
+    ...token,
+    buyAmount: BigNumber.from(
+      (quotes[i].status === "fulfilled" &&
+        (quotes[i] as PromiseFulfilledResult<OrderQuoteResponse>).value.quote
+          .buyAmount) ||
+        0
+    )
+      .mul(10000 - config.buyAmountSlippageBps)  // Apply slippage
+      .div(10000),
+  }))
+  .filter((_, i) => quotes[i].status === "fulfilled");
+```
+
+### Workflow
+
+1. **Fetch quotes**: Request quotes from CoW Protocol API for each token
+2. **Apply slippage**: Reduce `buyAmount` by the configured basis points
+3. **Filter by minOut**: Remove orders where `adjustedBuyAmount < module.minOut`
+4. **Submit orders**: Post orders to the orderbook with the adjusted `buyAmount`
+
+## Impact on Order Execution
+
+### Setting Too Low (e.g., 10 bps = 0.1%)
+
+**Risk:** Orders may **fail to execute** if the market moves unfavorably by more than 0.1%.
+
+**Outcome:**
+- Fewer orders fill successfully
+- Wasted gas on failed transactions
+- Requires re-running the CLI
+
+**Use when:**
+- Market is highly liquid and stable
+- You're willing to retry if orders fail
+
+### Setting Too High (e.g., 500 bps = 5%)
+
+**Risk:** Orders may execute with **worse prices** than necessary.
+
+**Outcome:**
+- More orders fill successfully
+- Potential loss of value due to excessive slippage tolerance
+- Less efficient fee collection
+
+**Use when:**
+- Market is volatile or illiquid
+- You prioritize execution certainty over optimal pricing
+
+### Recommended Values
+
+| Scenario | Recommended Slippage | Reasoning |
+|----------|---------------------|----------|
+| **Mainnet (liquid tokens)** | 50-100 bps (0.5%-1%) | Tight spreads, minimal price movement |
+| **Mainnet (illiquid tokens)** | 100-200 bps (1%-2%) | Wider spreads, more volatility |
+| **L2s (Arbitrum, Base)** | 100-150 bps (1%-1.5%) | Moderate liquidity |
+| **Volatile markets** | 200-300 bps (2%-3%) | High price movement risk |
+| **Stablecoins only** | 10-50 bps (0.1%-0.5%) | Minimal price movement |
+
+## Usage Examples
+
+<CodeGroup>
+
+```bash Default (1% slippage)
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x1234567890123456789012345678901234567890 \
+  --buy-amount-slippage-bps 100
+```
+
+```bash Conservative (0.5% slippage)
+yarn ts-node index.ts \
+  --network mainnet \
+  --module 0x1234567890123456789012345678901234567890 \
+  --buy-amount-slippage-bps 50
+```
+
+```bash Aggressive (3% slippage)
+yarn ts-node index.ts \
+  --network arbitrum \
+  --module 0x1234567890123456789012345678901234567890 \
+  --buy-amount-slippage-bps 300
+```
+
+</CodeGroup>
+
+## Relationship to `minOut`
+
+The `minOut` parameter (configured in the COWFeeModule contract) acts as a **secondary filter** after slippage is applied:
+
+```typescript
+// Step 1: Apply slippage
+adjustedBuyAmount = quotedBuyAmount × (10000 - buyAmountSlippageBps) / 10000
+
+// Step 2: Filter by minOut
+if (adjustedBuyAmount < module.minOut) {
+  // Exclude this token from the batch
+}
+```
+
+This ensures that even with slippage tolerance, **only profitable swaps are executed**.
+
+### Example
+
+Given:
+- Quoted `buyAmount` = 0.5 WETH
+- `--buy-amount-slippage-bps 100` (1%)
+- `module.minOut` = 0.1 WETH
+
+```
+adjustedBuyAmount = 0.5 × 9900 / 10000 = 0.495 WETH
+
+0.495 WETH >= 0.1 WETH  ✓  (order is included)
+```
+
+If `module.minOut` were 0.6 WETH:
+
+```
+0.495 WETH < 0.6 WETH  ✗  (order is excluded)
+```
+
+## Configuration Interface
+
+The `buyAmountSlippageBps` value is stored in the `IConfig` interface (`ts/config.ts:101`):
+
+```typescript ts/config.ts (excerpt)
+export interface IConfig {
+  chainId: SupportedChainId;
+  privateKey: string;
+  options: object;
+  maxOrders: number;
+  module: string;
+  gpv2Settlement: string;
+  vaultRelayer: string;
+  rpcUrl: string;
+  maxFeePerGas?: BigNumber;
+  maxPriorityFeePerGas?: BigNumber;
+  network: (typeof SUPPORTED_NETWORKS)[number];
+  wrappedNativeToken: string;
+  minOut: bigint;
+  targetSafe: string;
+  receiver: string;
+  buyAmountSlippageBps: number;  // ← Slippage tolerance
+  keeper: string;
+  appData: string;
+  tokenListStrategy: "explorer" | "chain";
+  lookbackRange: number;
+  confirmDrip: boolean;
+}
+```
+
+## Monitoring Slippage
+
+When the CLI runs, it logs the expected proceeds:
+
+```
+Fee collection for chain mainnet initiated (8 orders). 
+Expecting proceeds of 5.67 WETH!
+```
+
+This value is calculated **after slippage** is applied:
+
+```typescript ts/drip/dripItAll.ts (excerpt)
+let expectedBuy = tokensToSwap.reduce(
+  (sum, toSwap) => sum.add(toSwap.buyAmount),  // buyAmount already adjusted
+  ethers.BigNumber.from(0)
+);
+```
+
+To see the **actual received amount**, check the CoW Protocol explorer link provided in the output:
+
+```
+Follow the progress at https://explorer.cow.fi/address/0x...
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with the default (100 bps)">
+    The default 1% slippage is suitable for most scenarios. Monitor execution rates and adjust if needed.
+  </Accordion>
+  
+  <Accordion title="Lower slippage for stablecoins">
+    If your module primarily swaps stablecoins (USDC, DAI, USDT), use 10-50 bps to maximize proceeds.
+  </Accordion>
+  
+  <Accordion title="Increase slippage during volatility">
+    If orders frequently fail during high volatility, temporarily increase slippage to 200-300 bps.
+  </Accordion>
+  
+  <Accordion title="Monitor actual vs. expected proceeds">
+    Compare the CLI's "Expecting proceeds" output with the actual WETH received to gauge slippage effectiveness.
+  </Accordion>
+  
+  <Accordion title="Coordinate with minOut">
+    Ensure `module.minOut` is significantly lower than expected buyAmounts to avoid over-filtering.
+  </Accordion>
+</AccordionGroup>
+
+## Implementation Reference
+
+- **CLI parsing**: `ts/utils/readConfig.ts:45-52`
+- **Slippage application**: `ts/drip/getTokensToSwap.ts:73-81`
+- **Config interface**: `ts/config.ts:101`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Options" icon="sliders" href="/cli/options">
+    View all available command-line parameters
+  </Card>
+  <Card title="Token Discovery" icon="magnifying-glass" href="/cli/token-list-strategies">
+    Learn how tokens are discovered before quoting
+  </Card>
+  <Card title="Module Configuration" icon="gear" href="/configuration/module-parameters">
+    Understand how minOut interacts with slippage
+  </Card>
+</CardGroup>

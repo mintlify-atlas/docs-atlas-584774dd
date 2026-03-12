@@ -1,0 +1,245 @@
+---
+title: 'Deployment Guide'
+description: 'How to deploy and configure the COWFeeModule'
+---
+
+## Overview
+
+This guide covers deploying the COWFeeModule contract using Foundry, verifying it on block explorers, and enabling it on a Safe.
+
+## Deployment Script
+
+The module uses a Foundry script for deployment:
+
+```solidity script/DeployCOWFeeModule.s.sol
+contract DeployCOWFeeModule is Script {
+    function run() external {
+        address receiver = vm.envAddress("RECEIVER");
+        address wrappedNativeToken = vm.envAddress("WRAPPED_NATIVE_TOKEN");
+        address keeper = vm.envAddress("KEEPER");
+        address settlement = vm.envAddress("SETTLEMENT");
+        bytes32 appData = vm.envBytes32("APP_DATA");
+        bool shouldEnableModule = vm.envOr("SHOULD_ENABLE_MODULE", false);
+        address targetSafe = vm.envAddress("TARGET_SAFE");
+        uint256 minOut = vm.envUint("MIN_OUT");
+
+        vm.broadcast();
+        COWFeeModule module =
+            new COWFeeModule(settlement, targetSafe, wrappedNativeToken, keeper, appData, receiver, minOut);
+
+        // only useful for local anvil setup
+        if (shouldEnableModule) {
+            vm.broadcast(receiver);
+            ISafe(receiver).enableModule(address(module));
+        }
+    }
+}
+```
+
+## Environment Variables
+
+Create a `.env` file with the following variables:
+
+<ParamField path="RECEIVER" type="address">
+  Destination address that will receive the wrapped native tokens.
+</ParamField>
+
+<ParamField path="WRAPPED_NATIVE_TOKEN" type="address">
+  Address of the wrapped native token:
+  - Ethereum: WETH `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
+  - Gnosis Chain: WXDAI `0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d`
+  - Arbitrum: WETH `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1`
+  - Base: WETH `0x4200000000000000000000000000000000000006`
+</ParamField>
+
+<ParamField path="KEEPER" type="address">
+  Address authorized to execute module operations. This should be the address of the keeper bot.
+</ParamField>
+
+<ParamField path="SETTLEMENT" type="address">
+  CoW Protocol Settlement contract address:
+  - Ethereum: `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+  - Gnosis Chain: `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+  - Arbitrum: `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+  - Base: `0x9008D19f58AAbD9eD0D60971565AA8510560ab41`
+</ParamField>
+
+<ParamField path="APP_DATA" type="bytes32">
+  CoW Protocol app data identifier for orders created by this module.
+</ParamField>
+
+<ParamField path="TARGET_SAFE" type="address">
+  The Safe address that will use this module.
+</ParamField>
+
+<ParamField path="MIN_OUT" type="uint256">
+  Minimum output amount in wei. Orders with buyAmount below this will revert.
+</ParamField>
+
+<ParamField path="SHOULD_ENABLE_MODULE" type="bool" default="false">
+  Whether to automatically enable the module (only for local testing).
+</ParamField>
+
+## Deployment Commands
+
+### Dry Run
+
+Test the deployment without broadcasting transactions:
+
+```bash
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url <rpc>
+```
+
+### Deploy and Verify
+
+Deploy the contract and verify on block explorer:
+
+```bash
+# Set your API key
+export ETHERSCAN_API_KEY=<your-api-key>
+
+forge script ./script/DeployCOWFeeModule.s.sol \
+  --rpc-url <rpc> \
+  --broadcast --verify --private-key <private-key>
+```
+
+<Warning>
+Never commit private keys to version control. Use environment variables or hardware wallets.
+</Warning>
+
+## Manual Verification
+
+If the contract is already deployed and you need to verify it:
+
+```bash
+source .env
+
+forge verify-contract <fee-module-address> COWFeeModule \
+  --chain-id <chain-id> \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --constructor-args $(cast abi-encode "constructor(address,address,address,address,bytes32,address,uint256)" \
+    $SETTLEMENT $TARGET_SAFE $WRAPPED_NATIVE_TOKEN $KEEPER $APP_DATA $RECEIVER $MIN_OUT)
+```
+
+<Note>
+Constructor arguments must be ABI-encoded in the exact order they appear in the constructor.
+</Note>
+
+## Deployed Addresses
+
+The following addresses are deployed across multiple networks:
+
+### Mainnet (Chain ID: 1)
+```
+Address: 0x8429bf5bad17925c364c8c30a3c2a1e0d76602d2
+Transaction: 0x53af2b8111fa359558843a7afff5227a9104da4fec5f368d322e8649c91c070a
+```
+
+### Gnosis Chain (Chain ID: 100)
+```
+Address: 0x264843e85f8449ee3e9436253f3b8c0282dd4795
+Transaction: 0xfc3f72d19b7eeb53dca8f4046246c46e12e5b12e965f708dd079fc1cfa20a562
+```
+
+### Polygon (Chain ID: 137)
+```
+Address: 0xaf717efcfec02a65101e3ffb3c07234b8705cafc
+Transaction: 0xdda1c2a819a38ce5188c711c077802aef1cfb12de9f1cadede7b5edd6ef56b1b
+```
+
+### Arbitrum One (Chain ID: 42161)
+```
+Address: 0xaf717efcfec02a65101e3ffb3c07234b8705cafc
+Transaction: 0xed7069a1f6b1a8256d1e3d90936fe004aa22c4c8080f4c5bd7044d356e8c55e7
+```
+
+### Base (Chain ID: 8453)
+```
+Address: 0xb7ec643b48fe7730ef701d10362a9f8a670ac018
+Transaction: 0xc1e856978b945821e986a58ce9fcd6b78fac291be0ca9dc19731ba9ff087d3f6
+```
+
+### Avalanche C-Chain (Chain ID: 43114)
+```
+Address: 0xaf717efcfec02a65101e3ffb3c07234b8705cafc
+Transaction: 0x97975c8b66239526263bc03eba17e524b837539e5c4910d8f2d5f2c0c2433251
+```
+
+### BNB Smart Chain (Chain ID: 56)
+```
+Address: 0xab8bc499b69c56a0c14778ee162bfe245eb26ed9
+Transaction: 0x8a754808251ddae16ada08e71fe2fa36d06abcc1404d8aeb2f80a4413234c576
+```
+
+### Linea (Chain ID: 59144)
+```
+Address: 0x94333F7b2dFc3bf7EBD4DBd161f6C8BC0C7d6510
+Transaction: 0x9b5d2be3d917db185e352356cdb373447a1c11bf1be63784d0f62f4aa52268f9
+```
+
+### Sepolia Testnet (Chain ID: 11155111)
+```
+Address: 0x456ca0e6abf780140583ef3c8b5be2e7804278a6
+Transaction: 0x7b5d5a5b19af53e92a592ff746c82f96e1c0dd1c5325c5c2bc21b1b9dc09bdd2
+```
+
+## Enabling the Module
+
+After deployment, the module must be enabled on the target Safe.
+
+### Using Safe Transaction Builder
+
+1. Go to the [Safe Transaction Builder](https://app.safe.global/share/safe-app?appUrl=https%3A%2F%2Fapps-portal.safe.global%2Ftx-builder)
+2. Select your target Safe
+3. Click "Use Implementation ABI"
+4. Select `enableModule` from the dropdown
+5. Enter the COWFeeModule address
+6. Click "Add new transaction"
+7. Send batch and confirm with required signers
+
+### Using Cast
+
+Generate the calldata:
+
+```bash
+cast calldata "enableModule(address)" <module-address>
+```
+
+Use this calldata to create a transaction from the Safe to itself.
+
+<Warning>
+The module must be enabled before the keeper can execute any operations. Verify the module is enabled using Safe's UI or by calling `getModules()` on the Safe contract.
+</Warning>
+
+## Validating Deployment Parameters
+
+To compare parameters of a new deployment with an existing one:
+
+```bash
+yarn ts-node compare-deployments.ts --network <network-name> <new-module-address>
+```
+
+This is useful when redeploying the module with updated parameters.
+
+## Post-Deployment Checklist
+
+<Check>
+  Contract deployed and verified on block explorer
+</Check>
+
+<Check>
+  Module enabled on target Safe
+</Check>
+
+<Check>
+  Keeper address has ETH for gas
+</Check>
+
+<Check>
+  Environment variables configured for keeper bot
+</Check>
+
+<Check>
+  Test the drip function with small amounts
+</Check>

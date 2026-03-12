@@ -1,0 +1,324 @@
+---
+title: 'Contract Interfaces'
+description: 'Interface documentation for COWFeeModule dependencies'
+---
+
+## Overview
+
+The COWFeeModule interacts with several external contracts through well-defined interfaces. This page documents the key interfaces and their functions.
+
+## ISafe
+
+Interface for Safe (formerly Gnosis Safe) smart contract wallets.
+
+```solidity src/interfaces/ISafe.sol
+enum Operation {
+    Call,
+    DelegateCall
+}
+
+function execTransactionFromModuleReturnData(
+    address to,
+    uint256 value,
+    bytes memory data,
+    Operation operation
+) external returns (bool success, bytes memory returnData);
+
+function enableModule(address module) external;
+```
+
+### execTransactionFromModuleReturnData
+
+Executes a transaction from an enabled module with return data.
+
+<ParamField path="to" type="address">
+  Destination address of the module transaction.
+</ParamField>
+
+<ParamField path="value" type="uint256">
+  Ether value to send with the transaction.
+</ParamField>
+
+<ParamField path="data" type="bytes">
+  Encoded function call data.
+</ParamField>
+
+<ParamField path="operation" type="Operation">
+  Operation type: Call (0) or DelegateCall (1).
+</ParamField>
+
+<ResponseField name="success" type="bool">
+  Whether the transaction succeeded.
+</ResponseField>
+
+<ResponseField name="returnData" type="bytes">
+  Return data from the transaction.
+</ResponseField>
+
+### enableModule
+
+Enables a module on the Safe. Must be called by the Safe itself.
+
+<ParamField path="module" type="address">
+  Address of the module to enable.
+</ParamField>
+
+<Warning>
+The COWFeeModule must be enabled on the target Safe before it can execute any operations.
+</Warning>
+
+## IGPv2Settlement
+
+Interface for the CoW Protocol Settlement contract.
+
+```solidity src/interfaces/IGPv2Settlement.sol
+struct InteractionData {
+    address to;
+    uint256 value;
+    bytes callData;
+}
+
+struct TradeData {
+    uint256 sellTokenIndex;
+    uint256 buyTokenIndex;
+    address receiver;
+    uint256 sellAmount;
+    uint256 buyAmount;
+    uint32 validTo;
+    bytes32 appData;
+    uint256 feeAmount;
+    uint256 flags;
+    uint256 executedAmount;
+    bytes signature;
+}
+```
+
+### settle
+
+Main function for settling CoW Protocol orders.
+
+```solidity src/interfaces/IGPv2Settlement.sol
+function settle(
+    address[] memory tokens,
+    uint256[] memory clearingPrices,
+    TradeData[] memory trades,
+    InteractionData[][3] memory interactions
+) external;
+```
+
+<ParamField path="tokens" type="address[]">
+  Array of token addresses involved in the settlement.
+</ParamField>
+
+<ParamField path="clearingPrices" type="uint256[]">
+  Prices for each token in the settlement.
+</ParamField>
+
+<ParamField path="trades" type="TradeData[]">
+  Array of trade data for orders being settled.
+</ParamField>
+
+<ParamField path="interactions" type="InteractionData[][3]">
+  Three arrays of interactions: pre-interactions, intra-interactions, and post-interactions.
+</ParamField>
+
+<Note>
+The COWFeeModule uses `settle()` with empty trades and only intra-interactions to execute approvals and presignature commitments.
+</Note>
+
+### setPreSignature
+
+Commits or revokes a presignature for an order.
+
+```solidity src/interfaces/IGPv2Settlement.sol
+function setPreSignature(bytes calldata orderUid, bool signed) external;
+```
+
+<ParamField path="orderUid" type="bytes">
+  The unique identifier of the order (orderDigest + owner + validTo).
+</ParamField>
+
+<ParamField path="signed" type="bool">
+  Whether to commit (true) or revoke (false) the presignature.
+</ParamField>
+
+### domainSeparator
+
+Returns the EIP-712 domain separator for order signing.
+
+```solidity src/interfaces/IGPv2Settlement.sol
+function domainSeparator() external view returns (bytes32);
+```
+
+### vaultRelayer
+
+Returns the address of the vault relayer that executes token transfers.
+
+```solidity src/interfaces/IGPv2Settlement.sol
+function vaultRelayer() external view returns (address);
+```
+
+## IERC20
+
+Minimal ERC20 token interface used by the module.
+
+```solidity src/interfaces/IERC20.sol
+function approve(address, uint256) external;
+function balanceOf(address) external view returns (uint256);
+function transfer(address, uint256) external;
+```
+
+### approve
+
+Allows a spender to transfer tokens on behalf of the caller.
+
+<ParamField path="spender" type="address">
+  Address authorized to spend tokens.
+</ParamField>
+
+<ParamField path="amount" type="uint256">
+  Maximum amount the spender can transfer.
+</ParamField>
+
+### balanceOf
+
+Returns the token balance of an address.
+
+<ParamField path="account" type="address">
+  Address to query the balance of.
+</ParamField>
+
+<ResponseField name="balance" type="uint256">
+  Token balance of the account.
+</ResponseField>
+
+### transfer
+
+Transfers tokens to a recipient.
+
+<ParamField path="recipient" type="address">
+  Address receiving the tokens.
+</ParamField>
+
+<ParamField path="amount" type="uint256">
+  Amount of tokens to transfer.
+</ParamField>
+
+## IWrappedNativeToken
+
+Interface for wrapped native tokens (WETH, WXDAI, etc.) that extends IERC20.
+
+```solidity src/interfaces/IWrappedNativeToken.sol
+interface IWrappedNativeToken is IERC20 {
+    function deposit() external payable;
+}
+```
+
+### deposit
+
+Wraps native tokens (ETH, xDAI, etc.) into the wrapped version.
+
+<Note>
+This function is payable. The amount of wrapped tokens minted equals `msg.value`.
+</Note>
+
+## GPv2Order Library
+
+Library for working with CoW Protocol orders.
+
+### Order Data Structure
+
+```solidity src/libraries/GPv2Order.sol
+struct Data {
+    IERC20 sellToken;
+    IERC20 buyToken;
+    address receiver;
+    uint256 sellAmount;
+    uint256 buyAmount;
+    uint32 validTo;
+    bytes32 appData;
+    uint256 feeAmount;
+    bytes32 kind;
+    bool partiallyFillable;
+    bytes32 sellTokenBalance;
+    bytes32 buyTokenBalance;
+}
+```
+
+<ParamField path="sellToken" type="IERC20">
+  Token being sold.
+</ParamField>
+
+<ParamField path="buyToken" type="IERC20">
+  Token being bought.
+</ParamField>
+
+<ParamField path="receiver" type="address">
+  Address receiving the bought tokens.
+</ParamField>
+
+<ParamField path="sellAmount" type="uint256">
+  Amount of sellToken to sell.
+</ParamField>
+
+<ParamField path="buyAmount" type="uint256">
+  Minimum amount of buyToken to receive.
+</ParamField>
+
+<ParamField path="validTo" type="uint32">
+  Unix timestamp when the order expires.
+</ParamField>
+
+<ParamField path="appData" type="bytes32">
+  Application-specific data identifier.
+</ParamField>
+
+<ParamField path="feeAmount" type="uint256">
+  Fee amount in sellToken.
+</ParamField>
+
+<ParamField path="kind" type="bytes32">
+  Order kind: KIND_SELL or KIND_BUY.
+</ParamField>
+
+<ParamField path="partiallyFillable" type="bool">
+  Whether the order can be partially filled.
+</ParamField>
+
+<ParamField path="sellTokenBalance" type="bytes32">
+  Balance source for sellToken (BALANCE_ERC20, BALANCE_EXTERNAL, or BALANCE_INTERNAL).
+</ParamField>
+
+<ParamField path="buyTokenBalance" type="bytes32">
+  Balance destination for buyToken.
+</ParamField>
+
+### Constants
+
+```solidity src/libraries/GPv2Order.sol
+bytes32 internal constant KIND_SELL = hex"f3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775";
+bytes32 internal constant BALANCE_ERC20 = hex"5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9";
+```
+
+### hash
+
+Computes the EIP-712 order hash for signing.
+
+```solidity src/libraries/GPv2Order.sol
+function hash(Data memory order, bytes32 domainSeparator) 
+    internal 
+    pure 
+    returns (bytes32 orderDigest)
+```
+
+<ParamField path="order" type="Data">
+  The order data to hash.
+</ParamField>
+
+<ParamField path="domainSeparator" type="bytes32">
+  EIP-712 domain separator.
+</ParamField>
+
+<ResponseField name="orderDigest" type="bytes32">
+  The EIP-712 hash of the order.
+</ResponseField>
